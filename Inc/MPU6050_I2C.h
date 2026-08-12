@@ -34,6 +34,11 @@ typedef struct
 
     double KalmanAngleX;
     double KalmanAngleY;
+
+    // 新增：陀螺仪零偏校准值（单位：与Gyro_X_RAW同为原始LSB单位）
+    double Gyro_X_Offset;
+    double Gyro_Y_Offset;
+    double Gyro_Z_Offset;
 } MPU6050_t;
 
 // Kalman structure
@@ -48,6 +53,7 @@ typedef struct
 } Kalman_t;
 
 uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx);
+void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct, uint16_t sample_count);
 HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
 HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
 HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);

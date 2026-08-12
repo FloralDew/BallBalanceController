@@ -117,8 +117,8 @@ void OLED_Clear(void)
  */
 void OLED_Display_On(void)
 {
-	OLED_WR_CMD(0X8D); // SET DCDC命令
-	OLED_WR_CMD(0X14); // DCDC ON
+	OLED_WR_CMD(0X8D); // SET DCDC命令 (电荷泵使能)
+	OLED_WR_CMD(0X14); // DCDC ON (开启电荷泵)
 	OLED_WR_CMD(0XAF); // DISPLAY ON,打开显示
 }
 

@@ -39,23 +39,27 @@
 #define WHO_AM_I_REG 0x75
 #define PWR_MGMT_1_REG 0x6B
 #define SMPLRT_DIV_REG 0x19
+#define FSYNC_DLPF_REG 0x1A
 #define ACCEL_CONFIG_REG 0x1C
 #define ACCEL_XOUT_H_REG 0x3B
 #define TEMP_OUT_H_REG 0x41
 #define GYRO_CONFIG_REG 0x1B
 #define GYRO_XOUT_H_REG 0x43
+#define MPU_INT_EN_REG 0x38    // 中断使能寄存器
+#define MPU_INTBP_CFG_REG 0x37 // 中断/旁路设置寄存器
 
 // Setup MPU6050
 #define MPU6050_ADDR 0xD0
 const uint16_t i2c_timeout = 100;
-const double Accel_Z_corrector = 14418.0;
+const double Accel_Z_corrector = 16384.0;
 
 uint32_t timer;
 
 Kalman_t KalmanX = {
-    .Q_angle = 0.001f,
-    .Q_bias = 0.003f,
-    .R_measure = 0.03f};
+    .Q_angle = 0.001f, // 越小，越信任"预测值"（即积分陀螺仪得到的角度），滤波结果越平滑但响应变慢
+    .Q_bias = 0.003f,  // 越小，零偏估计变化越慢，收敛也越慢
+    .R_measure = 0.03f // 越大，越不信任"测量值"（加速度计算出的角度），能压制加速度计噪声，但会让整体响应变慢、有轻微滞后
+};
 
 Kalman_t KalmanY = {
     .Q_angle = 0.001f,
@@ -74,26 +78,87 @@ uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx)
     // return check; // 112
     if (check == 112) // 0x68 will be returned by the sensor if everything goes well
     {
+        // // 开启data ready中断
+        // Data = 0x01;
+        // HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, MPU_INT_EN_REG, 1, &Data, 1, i2c_timeout);
+        // // data ready中断低电平触发
+        // Data = 0xc0;
+        // HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, MPU_INTBP_CFG_REG, 1, &Data, 1, i2c_timeout);
+
         // power management register 0X6B we should write all 0's to wake the sensor up
         Data = 0;
         HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, PWR_MGMT_1_REG, 1, &Data, 1, i2c_timeout);
 
+        // FSYNC 与 DLPF配置，见数据手册11面
+        Data = 0x06;
+        HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, FSYNC_DLPF_REG, 1, &Data, 1, i2c_timeout);
+
         // Set DATA RATE of 1KHz by writing SMPLRT_DIV register
-        Data = 0x07;
+        Data = 0x09;
         HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, SMPLRT_DIV_REG, 1, &Data, 1, i2c_timeout);
 
         // Set accelerometer configuration in ACCEL_CONFIG Register
-        // XA_ST=0,YA_ST=0,ZA_ST=0, FS_SEL=0 -> � 2g
+        // XA_ST=0,YA_ST=0,ZA_ST=0, FS_SEL=0 -> ±2g
         Data = 0x00;
         HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, ACCEL_CONFIG_REG, 1, &Data, 1, i2c_timeout);
 
         // Set Gyroscopic configuration in GYRO_CONFIG Register
-        // XG_ST=0,YG_ST=0,ZG_ST=0, FS_SEL=0 -> � 250 �/s
+        // XG_ST=0,YG_ST=0,ZG_ST=0, FS_SEL=0 -> ±250 deg/s
         Data = 0x00;
         HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, GYRO_CONFIG_REG, 1, &Data, 1, i2c_timeout);
         return 0;
     }
     return 1;
+}
+
+/**
+ * @brief  陀螺仪开机零偏校准。要求物体在校准期间保持完全静止。
+ * @param  I2Cx: I2C句柄
+ * @param  DataStruct: MPU6050数据结构体，校准结果会存入其中的Gyro_X/Y/Z_Offset字段
+ * @param  sample_count: 采样次数，建议200~500次
+ * @retval None
+ */
+void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct, uint16_t sample_count)
+{
+    uint8_t Rec_Data[6];
+    int32_t sum_x = 0, sum_y = 0, sum_z = 0;
+    uint16_t valid_samples = 0;
+
+    for (uint16_t i = 0; i < sample_count; i++)
+    {
+        HAL_StatusTypeDef status = HAL_I2C_Mem_Read(
+            I2Cx, MPU6050_ADDR, GYRO_XOUT_H_REG, 1, Rec_Data, 6, i2c_timeout);
+
+        // 只累加读取成功的样本，避免偶发I2C错误污染校准结果
+        if (status == HAL_OK)
+        {
+            int16_t gx_raw = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
+            int16_t gy_raw = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
+            int16_t gz_raw = (int16_t)(Rec_Data[4] << 8 | Rec_Data[5]);
+
+            sum_x += gx_raw;
+            sum_y += gy_raw;
+            sum_z += gz_raw;
+            valid_samples++;
+        }
+
+        HAL_Delay(2); // 采样间隔，避免读取过快导致总线/传感器压力过大，可根据实际调整
+    }
+
+    // 防止全部读取失败导致除0
+    if (valid_samples > 0)
+    {
+        DataStruct->Gyro_X_Offset = (double)sum_x / valid_samples;
+        DataStruct->Gyro_Y_Offset = (double)sum_y / valid_samples;
+        DataStruct->Gyro_Z_Offset = (double)sum_z / valid_samples;
+    }
+    else
+    {
+        // 全部采样失败（比如I2C总线异常），清零偏移量，退化为不做零偏修正
+        DataStruct->Gyro_X_Offset = 0;
+        DataStruct->Gyro_Y_Offset = 0;
+        DataStruct->Gyro_Z_Offset = 0;
+    }
 }
 
 HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct)
