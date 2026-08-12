@@ -45,7 +45,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
-I2C_HandleTypeDef hi2c2;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -64,7 +63,6 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
-static void MX_I2C2_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -134,13 +132,12 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
-  MX_I2C2_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
   OLED_Clear();
   OLED_ShowString(0, 0, "Initializing", 12, 0);
-  while (MPU6050_Init(&hi2c2) == 1); // wait for mpu6050 to init
+  while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
   OLED_ShowString(0, 0, "Initialized", 12, 0);
   // OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1), 3, 16, 0);
   /* USER CODE END 2 */
@@ -171,11 +168,11 @@ int main(void)
     if (flag_100ms)
     {
       flag_100ms = 0;
-      if (MPU6050_Read_All(&hi2c2, &MPU6050) != HAL_OK)
+      if (MPU6050_Read_All(&hi2c1, &MPU6050) != HAL_OK)
       {
-        HAL_I2C_DeInit(&hi2c2);
+        HAL_I2C_DeInit(&hi2c1);
         HAL_Delay(1);
-        MX_I2C2_Init();
+        MX_I2C1_Init();
 				OLED_ShowString(0, 7, "FATAL", 12, 1);
 				fatal_cnt++;
 				OLED_ShowUint(6 * 6, 7, fatal_cnt, 3, 12, 1);
@@ -191,14 +188,15 @@ int main(void)
       sprintf(buf, "%.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
       OLED_ShowString(0, 4, buf, 12, 0);
 
-      sprintf(buf, "ac %f %f %f, gy %f %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az, MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
+      sprintf(buf, "ac %f %f %f, gy %.12f %.12f %.12f, tmp %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az, 
+							MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature);
       HAL_UART_Transmit(&huart2, (uint8_t *)buf, strlen(buf), HAL_MAX_DELAY);
     }
 
     if (flag_1s)
     {
       flag_1s = 0;
-      OLED_Clear();
+      // OLED_Clear();
     }
 
     /* USER CODE END WHILE */
@@ -278,40 +276,6 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
-
-}
-
-/**
-  * @brief I2C2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C2_Init(void)
-{
-
-  /* USER CODE BEGIN I2C2_Init 0 */
-
-  /* USER CODE END I2C2_Init 0 */
-
-  /* USER CODE BEGIN I2C2_Init 1 */
-
-  /* USER CODE END I2C2_Init 1 */
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.ClockSpeed = 400000;
-  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C2_Init 2 */
-
-  /* USER CODE END I2C2_Init 2 */
 
 }
 
