@@ -94,7 +94,7 @@ uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx)
         HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, FSYNC_DLPF_REG, 1, &Data, 1, i2c_timeout);
 
         // Set DATA RATE of 1KHz by writing SMPLRT_DIV register
-        Data = 0x09;
+        Data = 0x09; // 100Hz 读取一次陀螺仪
         HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, SMPLRT_DIV_REG, 1, &Data, 1, i2c_timeout);
 
         // Set accelerometer configuration in ACCEL_CONFIG Register
