@@ -40,6 +40,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define LASER_BUF_SIZE 64
 
 /* USER CODE END PM */
 
@@ -48,12 +49,18 @@ I2C_HandleTypeDef hi2c1;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart1_rx;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
-uint8_t laser_rxByte;             // 每次中断只读1个byte
-uint8_t laser_rxBuffer[32] = {0}; // 累积1帧数据的buffer
-uint8_t laser_rxIndex = 0;        // 当前写入位置
-uint8_t laser_frameReady = 0;     // 1帧数据是否接收完成的标志
+static uint8_t laser_bufA[LASER_BUF_SIZE];
+static uint8_t laser_bufB[LASER_BUF_SIZE];
+// DMA 正在写入的那块（只在 ISR 里改）
+static uint8_t *laser_activeBuf = laser_bufA;
+// 已收完整帧交给主循环读的那块（ISR 写，主循环读）
+static uint8_t *volatile laser_readyBuf = NULL; // pointer, instead of data, is volatile
+static volatile uint16_t laser_readyLen = 0;
+static volatile uint8_t laser_frameReady = 0;
 
 MPU6050_t MPU6050;
 /* USER CODE END PV */
@@ -61,6 +68,7 @@ MPU6050_t MPU6050;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -70,25 +78,27 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// interrupt callback
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+/*********************** interrupt callback **********************/
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma接收不定长数据的中断
 {
   if (huart == &huart1)
   {
-    if (laser_rxByte == '\n') // 收到帧尾，一帧end
-    {
-      laser_rxBuffer[laser_rxIndex] = '\0'; // 字符串end
-      laser_frameReady = 1;                 // 标记主循环去处理
-      laser_rxIndex = 0;                    // 重置，准备接收next frame
-    }
-    else if (laser_rxByte != '\r')
-    {
-      if (laser_rxIndex < sizeof(laser_rxBuffer) - 1) // 防止越界
-        laser_rxBuffer[laser_rxIndex++] = laser_rxByte;
-      else
-        laser_rxIndex = 0; // discard current frame
-    }
-    HAL_UART_Receive_IT(&huart1, &laser_rxByte, 1);
+    uint8_t *justFilled = laser_activeBuf; // 刚收完的这块
+
+    // 加字符串终止符（DMA 不会自动加）
+    if (Size < LASER_BUF_SIZE)
+      justFilled[Size] = '\0';
+    else
+      justFilled[LASER_BUF_SIZE - 1] = '\0';
+
+    // 交换：刚收完的交给主循环，另块拿去继续收
+    laser_activeBuf = (justFilled == laser_bufA) ? laser_bufB : laser_bufA;
+
+    laser_readyBuf = justFilled;
+    laser_readyLen = Size;
+    laser_frameReady = 1;
+
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser_activeBuf, LASER_BUF_SIZE);
   }
 }
 
@@ -130,6 +140,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_I2C1_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
@@ -144,53 +155,55 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_UART_Receive_IT(&huart1, &laser_rxByte, 1);
-	OLED_Clear();
-	int fatal_cnt = 0;
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser_activeBuf, 64); // 接收不定长数据，32为最大长度
+  OLED_Clear();
+	int i2c1_fault_cnt = 0;
   while (1)
   {
 		// OLED_Clear();
     if (laser_frameReady)
     {
       laser_frameReady = 0;
-      char localBuf[32] = {0};
-      // 关中断做1次快速拷贝，防止拷贝过程中又被ISR写入
-      __disable_irq(); // 关闭all能关闭的中断，即cubemx中NVIC除了前两个的中断
-      strncpy(localBuf, (char *)laser_rxBuffer, sizeof(localBuf) - 1);
-      localBuf[sizeof(localBuf) - 1] = '\0';
-      __enable_irq();
-      
-      char *pos = strtok(localBuf, ","); // 之后全部操作localBuf，不再涉及laser_rxBuffer
-      OLED_ShowString(0, 0, "pos:", 12, 0);
-      OLED_ShowString(6 * 5, 0, pos, 12, 0);
+      char *frame = (char *)laser_readyBuf; // 直接用，不需要拷贝
+
+      if (frame != NULL)
+      {
+        char *pos = strtok(frame, ",");
+        if (pos != NULL)
+        {
+          OLED_ShowString(0, 0, "pos:", 12, 0);
+          OLED_ShowString(6 * 5, 0, pos, 12, 0);
+        }
+      }
     }
     
     if (flag_100ms)
     {
       flag_100ms = 0;
-      if (MPU6050_Read_All(&hi2c1, &MPU6050) != HAL_OK)
+      if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
       {
-        HAL_I2C_DeInit(&hi2c1);
-        HAL_Delay(1);
-        MX_I2C1_Init();
-				OLED_ShowString(0, 7, "FATAL", 12, 1);
-				fatal_cnt++;
-				OLED_ShowUint(6 * 6, 7, fatal_cnt, 3, 12, 1);
-        continue;
-      }
-      char buf[64] = {0};
-      sprintf(buf, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
-      OLED_ShowString(0, 1, buf, 12, 0);
-      sprintf(buf, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
-      OLED_ShowString(0, 2, buf, 12, 0);
-      sprintf(buf, "temp %.2f", MPU6050.Temperature);
-      OLED_ShowString(0, 3, buf, 12, 0);
-      sprintf(buf, "%.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-      OLED_ShowString(0, 4, buf, 12, 0);
+        static char buf[128] = {0}; // dma非阻塞，必须设置为static，否则dma搬走的是垃圾
+        sprintf(buf, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
+        OLED_ShowString(0, 1, buf, 12, 0);
+        sprintf(buf, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
+        OLED_ShowString(0, 2, buf, 12, 0);
+        sprintf(buf, "temp %.2f", MPU6050.Temperature);
+        OLED_ShowString(0, 3, buf, 12, 0);
+        sprintf(buf, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+        OLED_ShowString(0, 4, buf, 12, 0);
 
-      sprintf(buf, "ac %f %f %f, gy %.12f %.12f %.12f, tmp %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az, 
-							MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature);
-      HAL_UART_Transmit(&huart2, (uint8_t *)buf, strlen(buf), HAL_MAX_DELAY);
+        sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
+                MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature);
+        // if (huart2.gState == HAL_UART_STATE_READY)
+        HAL_UART_Transmit_DMA(&huart2, (uint8_t *)buf, strlen(buf)); // 必须也打开huart2的全局中断
+      } else {
+        HAL_I2C_DeInit(&hi2c1);
+        HAL_Delay(5);
+        MX_I2C1_Init();
+        OLED_ShowString(0, 7, "I2C1 Fault", 12, 1);
+        i2c1_fault_cnt++;
+        OLED_ShowUint(10 * 6, 7, i2c1_fault_cnt, 3, 12, 1);
+      }
     }
 
     if (flag_1s)
@@ -342,6 +355,25 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
+  /* DMA1_Channel7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
 
 }
 
