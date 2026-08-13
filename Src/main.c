@@ -147,16 +147,17 @@ int main(void)
   /* USER CODE BEGIN 2 */
   OLED_Init();
   OLED_Clear();
-  OLED_ShowString(0, 0, "Initializing", 12, 0);
+  OLED_ShowString(0, 0, "MPU Initializing...", 12, 0);
   while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
-  OLED_ShowString(0, 0, "Initialized", 12, 0);
+  OLED_ShowString(0, 0, "MPU Calibrating...", 12, 0);
+  MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
+  OLED_Clear();
   // OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1), 3, 16, 0);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser_activeBuf, 64); // 接收不定长数据，32为最大长度
-  OLED_Clear();
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser_activeBuf, 64); // 接收不定长数据，32为最大长度。同样必须打开uart1全局中断
 	int i2c1_fault_cnt = 0;
   while (1)
   {
@@ -182,7 +183,7 @@ int main(void)
       flag_100ms = 0;
       if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
       {
-        static char buf[128] = {0}; // dma非阻塞，必须设置为static，否则dma搬走的是垃圾
+        static char buf[256] = {0}; // dma非阻塞，必须设置为static，否则dma搬走的是垃圾
         sprintf(buf, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
         OLED_ShowString(0, 1, buf, 12, 0);
         sprintf(buf, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
@@ -192,10 +193,11 @@ int main(void)
         sprintf(buf, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
         OLED_ShowString(0, 4, buf, 12, 0);
 
-        sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
-                MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature);
+        sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
+                MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+        // sprintf(buf, "%f,%f,%f\n", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY, 0.0f);
         // if (huart2.gState == HAL_UART_STATE_READY)
-        HAL_UART_Transmit_DMA(&huart2, (uint8_t *)buf, strlen(buf)); // 必须也打开huart2的全局中断
+        HAL_UART_Transmit_DMA(&huart2, (uint8_t *)buf, strlen(buf)); // 必须也打开uart2的全局中断
       } else {
         HAL_I2C_DeInit(&hi2c1);
         HAL_Delay(5);

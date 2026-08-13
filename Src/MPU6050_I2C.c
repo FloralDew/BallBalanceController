@@ -245,9 +245,9 @@ HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruc
     DataStruct->Ay = DataStruct->Accel_Y_RAW / 16384.0;
     DataStruct->Az = DataStruct->Accel_Z_RAW / Accel_Z_corrector;
     DataStruct->Temperature = (float)((int16_t)temp / (float)340.0 + (float)36.53);
-    DataStruct->Gx = DataStruct->Gyro_X_RAW / 131.0;
-    DataStruct->Gy = DataStruct->Gyro_Y_RAW / 131.0;
-    DataStruct->Gz = DataStruct->Gyro_Z_RAW / 131.0;
+    DataStruct->Gx = (DataStruct->Gyro_X_RAW - DataStruct->Gyro_X_Offset) / 131.0;
+    DataStruct->Gy = (DataStruct->Gyro_Y_RAW - DataStruct->Gyro_Y_Offset) / 131.0;
+    DataStruct->Gz = (DataStruct->Gyro_Z_RAW - DataStruct->Gyro_Z_Offset) / 131.0;
 
     // Kalman angle solve
     double dt = (double)(HAL_GetTick() - timer) / 1000;
