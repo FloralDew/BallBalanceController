@@ -193,9 +193,9 @@ int main(void)
         sprintf(buf, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
         OLED_ShowString(0, 4, buf, 12, 0);
 
-        sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
-                MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-        // sprintf(buf, "%f,%f,%f\n", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY, 0.0f);
+        // sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
+        //         MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+        sprintf(buf, "%d,%d,%d\n", MPU6050.Accel_X_RAW, MPU6050.Accel_Y_RAW, MPU6050.Accel_Z_RAW);
         // if (huart2.gState == HAL_UART_STATE_READY)
         HAL_UART_Transmit_DMA(&huart2, (uint8_t *)buf, strlen(buf)); // 必须也打开uart2的全局中断
       } else {
