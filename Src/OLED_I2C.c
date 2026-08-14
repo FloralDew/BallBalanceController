@@ -1,11 +1,14 @@
 #include "OLED_I2C.h"
 #include "codetab.h" // 必须直接包含这个头文件，如果在oled_i2c.h中包含，此头文件中的变量无法找到
+#include <stdarg.h>
+#include <stdio.h>
+extern I2C_HandleTypeDef hi2c1;
 
 // 注意这里直接使用了hi2c1句柄, 如果显示屏接的是别的i2c口, 需要改. 见h文件中的extern
 
 #define COLUMN_ADDRESS_SHIFT (uint8_t)2
 /*
-SSD1306 芯片内部的显示 RAM（GDDRAM）宽度是132 列0-131），
+SH1106 芯片内部的显示 RAM（GDDRAM）宽度是132 列0-131），
 但绝大多数 0.96 寸 128×64 OLED模组的玻璃面板实际只用中间的 128 列去接驱动 IC 的输出端
 不同厂家/批次的模组，把这 128 列接在 GDDRAM 的哪个位置是不一样的，常见的有两种：
 - 从第 0 列开始接（列偏移 0）
@@ -238,6 +241,34 @@ void OLED_ShowString(uint8_t x, uint8_t y, char *chr, uint8_t Char_Size, uint8_t
 }
 
 /**
+  * @brief          formatted output in oled 128*64
+  * @param[in]      row: row of character string begin, 0 <= row <= 4;
+  * @param[in]      col: column of character string begin, 0 <= col <= 20;
+  * @param          *fmt: the pointer to format character string
+  * @note           if the character length is more than one row at a time, the extra characters will be truncated
+  * @retval         none
+  */
+/**
+  * @brief          格式输出
+  * @param[in]      row: 开始列，0 <= row <= 4;
+  * @param[in]      col: 开始行， 0 <= col <= 20;
+  * @param[in]      *fmt:格式化输出字符串
+  * @note           如果字符串长度大于一行，额外的字符会换行
+  * @retval         none
+  */
+void OLED_printf(uint8_t x, uint8_t y, uint8_t Char_Size, uint8_t Color_Turn, const char *fmt, ...)
+{
+    uint8_t STRING_BUF[256] = {0};
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf((char *)STRING_BUF, sizeof(STRING_BUF), fmt, ap);
+    va_end(ap);
+
+	OLED_ShowString(x, y, (char *)STRING_BUF, Char_Size, Color_Turn);
+}
+
+/**
  * @function: void OLED_ShowUint(uint8_t x,uint8_t y,unsigned int num,uint8_t len,uint8_t size2, Color_Turn)
  * @description: 显示数字
  * @param {uint8_t} x待显示的数字起始横坐标,x:0-126
@@ -390,68 +421,68 @@ void OLED_DrawBMP(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint8_t *BMP, 
 	}
 }
 
-/**
- * @function: void OLED_HorizontalShift(uint8_t direction)
- * @description: 屏幕内容水平全屏滚动播放
- * @param {uint8_t} direction			LEFT	   0x27     	RIGHT  0x26
- * @return {*}
- */
-void OLED_HorizontalShift(uint8_t direction)
+// /**
+//  * @function: void OLED_HorizontalShift(uint8_t direction)
+//  * @description: 屏幕内容水平全屏滚动播放
+//  * @param {uint8_t} direction			LEFT	   0x27     	RIGHT  0x26
+//  * @return {*}
+//  */
+// void OLED_HorizontalShift(uint8_t direction)
 
-{
-	OLED_WR_CMD(0x2e);		// 停止滚动
-	OLED_WR_CMD(direction); // 设置滚动方向
-	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
-	OLED_WR_CMD(0x00);		// 设置开始页地址
-	OLED_WR_CMD(0x07);		// 设置每个滚动步骤之间的时间间隔的帧频
-	//  0x00-5帧， 0x01-64帧， 0x02-128帧， 0x03-256帧， 0x04-3帧， 0x05-4帧， 0x06-25帧， 0x07-2帧，
-	OLED_WR_CMD(0x07); // 设置结束页地址
-	OLED_WR_CMD(0x00); // 虚拟字节设置，默认为0x00
-	OLED_WR_CMD(0xff); // 虚拟字节设置，默认为0xff
-	OLED_WR_CMD(0x2f); // 开启滚动-0x2f，禁用滚动-0x2e，禁用需要重写数据
-}
+// {
+// 	OLED_WR_CMD(0x2e);		// 停止滚动
+// 	OLED_WR_CMD(direction); // 设置滚动方向
+// 	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
+// 	OLED_WR_CMD(0x00);		// 设置开始页地址
+// 	OLED_WR_CMD(0x07);		// 设置每个滚动步骤之间的时间间隔的帧频
+// 	//  0x00-5帧， 0x01-64帧， 0x02-128帧， 0x03-256帧， 0x04-3帧， 0x05-4帧， 0x06-25帧， 0x07-2帧，
+// 	OLED_WR_CMD(0x07); // 设置结束页地址
+// 	OLED_WR_CMD(0x00); // 虚拟字节设置，默认为0x00
+// 	OLED_WR_CMD(0xff); // 虚拟字节设置，默认为0xff
+// 	OLED_WR_CMD(0x2f); // 开启滚动-0x2f，禁用滚动-0x2e，禁用需要重写数据
+// }
 
-/**
- * @function: void OLED_Some_HorizontalShift(uint8_t direction,uint8_t start,uint8_t end)
- * @description: 屏幕部分内容水平滚动播放
- * @param {uint8_t} direction			LEFT	   0x27     	RIGHT  0x26
- * @param {uint8_t} start 开始页地址  0x00-0x07
- * @param {uint8_t} end  结束页地址  0x01-0x07
- * @return {*}
- */
-void OLED_Some_HorizontalShift(uint8_t direction, uint8_t start, uint8_t end)
-{
-	OLED_WR_CMD(0x2e);		// 停止滚动
-	OLED_WR_CMD(direction); // 设置滚动方向
-	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
-	OLED_WR_CMD(start);		// 设置开始页地址
-	OLED_WR_CMD(0x07);		// 设置每个滚动步骤之间的时间间隔的帧频,0x07即滚动速度2帧
-	OLED_WR_CMD(end);		// 设置结束页地址
-	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
-	OLED_WR_CMD(0xff);		// 虚拟字节设置，默认为0xff
-	OLED_WR_CMD(0x2f);		// 开启滚动-0x2f，禁用滚动-0x2e，禁用需要重写数据
-}
+// /**
+//  * @function: void OLED_Some_HorizontalShift(uint8_t direction,uint8_t start,uint8_t end)
+//  * @description: 屏幕部分内容水平滚动播放
+//  * @param {uint8_t} direction			LEFT	   0x27     	RIGHT  0x26
+//  * @param {uint8_t} start 开始页地址  0x00-0x07
+//  * @param {uint8_t} end  结束页地址  0x01-0x07
+//  * @return {*}
+//  */
+// void OLED_Some_HorizontalShift(uint8_t direction, uint8_t start, uint8_t end)
+// {
+// 	OLED_WR_CMD(0x2e);		// 停止滚动
+// 	OLED_WR_CMD(direction); // 设置滚动方向
+// 	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
+// 	OLED_WR_CMD(start);		// 设置开始页地址
+// 	OLED_WR_CMD(0x07);		// 设置每个滚动步骤之间的时间间隔的帧频,0x07即滚动速度2帧
+// 	OLED_WR_CMD(end);		// 设置结束页地址
+// 	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
+// 	OLED_WR_CMD(0xff);		// 虚拟字节设置，默认为0xff
+// 	OLED_WR_CMD(0x2f);		// 开启滚动-0x2f，禁用滚动-0x2e，禁用需要重写数据
+// }
 
-/**
- * @function: void OLED_VerticalAndHorizontalShift(uint8_t direction)
- * @description: 屏幕内容垂直水平全屏滚动播放
- * @param {uint8_t} direction				右上滚动	 0x29
- *                                                            左上滚动   0x2A
- * @return {*}
- */
-void OLED_VerticalAndHorizontalShift(uint8_t direction)
-{
-	OLED_WR_CMD(0x2e);		// 停止滚动
-	OLED_WR_CMD(direction); // 设置滚动方向
-	OLED_WR_CMD(0x01);		// 虚拟字节设置
-	OLED_WR_CMD(0x00);		// 设置开始页地址
-	OLED_WR_CMD(0x07);		// 设置每个滚动步骤之间的时间间隔的帧频，即滚动速度
-	OLED_WR_CMD(0x07);		// 设置结束页地址
-	OLED_WR_CMD(0x01);		// 垂直滚动偏移量
-	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
-	OLED_WR_CMD(0xff);		// 虚拟字节设置，默认为0xff
-	OLED_WR_CMD(0x2f);		// 开启滚动-0x2f，禁用滚动-0x2e，禁用需要重写数据
-}
+// /**
+//  * @function: void OLED_VerticalAndHorizontalShift(uint8_t direction)
+//  * @description: 屏幕内容垂直水平全屏滚动播放
+//  * @param {uint8_t} direction				右上滚动	 0x29
+//  *                                                            左上滚动   0x2A
+//  * @return {*}
+//  */
+// void OLED_VerticalAndHorizontalShift(uint8_t direction)
+// {
+// 	OLED_WR_CMD(0x2e);		// 停止滚动
+// 	OLED_WR_CMD(direction); // 设置滚动方向
+// 	OLED_WR_CMD(0x01);		// 虚拟字节设置
+// 	OLED_WR_CMD(0x00);		// 设置开始页地址
+// 	OLED_WR_CMD(0x07);		// 设置每个滚动步骤之间的时间间隔的帧频，即滚动速度
+// 	OLED_WR_CMD(0x07);		// 设置结束页地址
+// 	OLED_WR_CMD(0x01);		// 垂直滚动偏移量
+// 	OLED_WR_CMD(0x00);		// 虚拟字节设置，默认为0x00
+// 	OLED_WR_CMD(0xff);		// 虚拟字节设置，默认为0xff
+// 	OLED_WR_CMD(0x2f);		// 开启滚动-0x2f，禁用滚动-0x2e，禁用需要重写数据
+// }
 
 /**
  * @function: void OLED_DisplayMode(uint8_t mode)

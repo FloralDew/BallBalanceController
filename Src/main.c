@@ -176,8 +176,7 @@ int main(void)
         char *pos = strtok(frame, ",");
         if (pos != NULL)
         {
-          OLED_ShowString(0, 0, "pos:", 12, 0);
-          OLED_ShowString(6 * 5, 0, pos, 12, 0);
+          OLED_printf(0, 0, 12, 0, "%s  ", pos);
         }
       }
     }
@@ -187,28 +186,29 @@ int main(void)
       flag_100ms = 0;
       if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
       {
+        // sprintf(buf, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
+        // OLED_ShowString(0, 1, buf, 12, 0);
+        // sprintf(buf, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
+        // OLED_ShowString(0, 2, buf, 12, 0);
+        // sprintf(buf, "temp %.2f", MPU6050.Temperature);
+        // OLED_ShowString(0, 3, buf, 12, 0);
+        // sprintf(buf, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+        // OLED_ShowString(0, 4, buf, 12, 0);
+        OLED_printf(0, 1, 12, 0, "%.3f %.3f  ", MPU6050.Ay, MPU6050.Az);
+        OLED_printf(0, 2, 12, 0, "%.2f ", MPU6050.KalmanAngleX);
+        // 串口发送
         static char buf[256] = {0}; // dma非阻塞，必须设置为static，否则dma搬走的是垃圾
-        sprintf(buf, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
-        OLED_ShowString(0, 1, buf, 12, 0);
-        sprintf(buf, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
-        OLED_ShowString(0, 2, buf, 12, 0);
-        sprintf(buf, "temp %.2f", MPU6050.Temperature);
-        OLED_ShowString(0, 3, buf, 12, 0);
-        sprintf(buf, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-        OLED_ShowString(0, 4, buf, 12, 0);
-
-        // sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
-        //         MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-        sprintf(buf, "%d,%d,%d\n", MPU6050.Accel_X_RAW, MPU6050.Accel_Y_RAW, MPU6050.Accel_Z_RAW);
+        sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
+                MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+        // sprintf(buf, "%d,%d,%d\n", MPU6050.Accel_X_RAW, MPU6050.Accel_Y_RAW, MPU6050.Accel_Z_RAW);
         // if (huart2.gState == HAL_UART_STATE_READY)
         HAL_UART_Transmit_DMA(&huart2, (uint8_t *)buf, strlen(buf)); // 必须也打开uart2的全局中断
       } else {
         HAL_I2C_DeInit(&hi2c1);
         HAL_Delay(5);
         MX_I2C1_Init();
-        OLED_ShowString(0, 7, "I2C1 Fault", 12, 1);
-        i2c1_fault_cnt++;
-        OLED_ShowUint(10 * 6, 7, i2c1_fault_cnt, 3, 12, 1);
+
+        OLED_printf(0, 7, 12, 0, "F %d", i2c1_fault_cnt++);
       }
     }
 
@@ -216,7 +216,7 @@ int main(void)
     {
       flag_1s = 0;
       // // OLED_Clear();
-			// HAL_ADC_Start(&hadc1); // 启动常规序列
+			// HAL_ADC_Start(&hadc1); // 启动ADC常规序列
       // HAL_ADC_PollForConversion(&hadc1, 5); // 等待转换完成，us级. 超时时间单位为ms
       // uint32_t dr = HAL_ADC_GetValue(&hadc1);
       // float motor_votage = dr * (3.3 - 0.0) / 4095.0;
