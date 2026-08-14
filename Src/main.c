@@ -30,7 +30,21 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+// 激光测距模块
+#define LASER_BUF_SIZE 64
+typedef struct {
+  uint8_t bufA[LASER_BUF_SIZE];
+  uint8_t bufB[LASER_BUF_SIZE];
+  uint8_t *activeBuf; // DMA 正在写入的那块(只在 ISR 里改)
+  // 已收完整帧交给主循环读的那块（ISR 写，主循环读）
+  uint8_t *volatile readyBuf; // pointer, instead of data, is volatile
+  volatile uint8_t frameReady;
+} Laser;
 
+typedef struct {
+  uint16_t count_raw;
+  uint8_t modified_flag;
+} Rotary_encoder;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -40,7 +54,6 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define LASER_BUF_SIZE 64
 
 /* USER CODE END PM */
 
@@ -49,22 +62,31 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim3;
+
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
+UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
+DMA_HandleTypeDef hdma_usart3_tx;
 
 /* USER CODE BEGIN PV */
-static uint8_t laser_bufA[LASER_BUF_SIZE];
-static uint8_t laser_bufB[LASER_BUF_SIZE];
-// DMA 正在写入的那块（只在 ISR 里改）
-static uint8_t *laser_activeBuf = laser_bufA;
-// 已收完整帧交给主循环读的那块（ISR 写，主循环读）
-static uint8_t *volatile laser_readyBuf = NULL; // pointer, instead of data, is volatile
-static volatile uint16_t laser_readyLen = 0;
-static volatile uint8_t laser_frameReady = 0;
-
+// 激光测距
+Laser laser = {
+  .activeBuf = laser.bufA,
+  .readyBuf = NULL,
+  .frameReady = 0
+}; // 只初始化了部分成员，其他成员自动置0.（数组则置全0, 指针NULL）
+// 全局不能写赋值这样的可执行语句. 只有在函数体内可以
+// mpu6050
 MPU6050_t MPU6050;
+// 旋转编码器
+Rotary_encoder rotary_encoder = {
+  .count_raw = 0,
+  .modified_flag = 0
+};
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -75,6 +97,8 @@ static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -86,7 +110,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma
 {
   if (huart == &huart1)
   {
-    uint8_t *justFilled = laser_activeBuf; // 刚收完的这块
+    uint8_t *justFilled = laser.activeBuf; // 刚收完的这块
 
     // 加字符串终止符（DMA 不会自动加）
     if (Size < LASER_BUF_SIZE)
@@ -95,13 +119,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma
       justFilled[LASER_BUF_SIZE - 1] = '\0';
 
     // 交换：刚收完的交给主循环，另块拿去继续收
-    laser_activeBuf = (justFilled == laser_bufA) ? laser_bufB : laser_bufA;
+    laser.activeBuf = (justFilled == laser.bufA) ? laser.bufB : laser.bufA;
 
-    laser_readyBuf = justFilled;
-    laser_readyLen = Size;
-    laser_frameReady = 1;
+    laser.readyBuf = justFilled;
+    // laser_readyLen = Size;
+    laser.frameReady = 1;
 
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser_activeBuf, LASER_BUF_SIZE);
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser.activeBuf, LASER_BUF_SIZE);
   }
 }
 
@@ -112,6 +136,16 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma
 // void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 // {
 // }
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim == &htim3)
+  {
+    rotary_encoder.count_raw = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+    rotary_encoder.modified_flag = 1;
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -148,10 +182,16 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
+  MX_TIM3_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+  // Initialization
   OLED_Init();
   OLED_Clear();
-  OLED_ShowString(0, 0, "MPU Initializing...", 12, 0);
+  HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_2);
+
+  // OLED_ShowString(0, 0, "MPU Initializing...", 12, 0);
   while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
   OLED_ShowString(0, 0, "MPU Calibrating...", 12, 0);
   MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
@@ -161,15 +201,17 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser_activeBuf, 64); // 接收不定长数据，32为最大长度。同样必须打开uart1全局中断
-	int i2c1_fault_cnt = 0;
+  // 接收不定长数据，64为最大长度. 同样必须打开uart1全局中断
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser.activeBuf, LASER_BUF_SIZE);
+  int i2c1_fault_cnt = 0;
+  float ball_target = 0.0f;
   while (1)
   {
 		// OLED_Clear();
-    if (laser_frameReady)
+    if (laser.frameReady)
     {
-      laser_frameReady = 0;
-      char *frame = (char *)laser_readyBuf; // 直接用，不需要拷贝
+      laser.frameReady = 0;
+      char *frame = (char *)laser.readyBuf; // 直接用，不需要拷贝
 
       if (frame != NULL)
       {
@@ -180,7 +222,14 @@ int main(void)
         }
       }
     }
-    
+
+    if (rotary_encoder.modified_flag)
+    {
+      rotary_encoder.modified_flag = 0;
+      ball_target = rotary_encoder.count_raw / 4.0f;
+      OLED_printf(80, 0, 12, 0, "%g   ", ball_target);
+    }
+
     if (flag_100ms)
     {
       flag_100ms = 0;
@@ -358,6 +407,55 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 59;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 15;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_FALLING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 15;
+  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -424,6 +522,39 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * @brief USART3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART3_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART3_Init 0 */
+
+  /* USER CODE END USART3_Init 0 */
+
+  /* USER CODE BEGIN USART3_Init 1 */
+
+  /* USER CODE END USART3_Init 1 */
+  huart3.Instance = USART3;
+  huart3.Init.BaudRate = 115200;
+  huart3.Init.WordLength = UART_WORDLENGTH_8B;
+  huart3.Init.StopBits = UART_STOPBITS_1;
+  huart3.Init.Parity = UART_PARITY_NONE;
+  huart3.Init.Mode = UART_MODE_TX_RX;
+  huart3.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart3.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART3_Init 2 */
+
+  /* USER CODE END USART3_Init 2 */
+
+}
+
+/**
   * Enable DMA controller clock
   */
 static void MX_DMA_Init(void)
@@ -433,6 +564,9 @@ static void MX_DMA_Init(void)
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
+  /* DMA1_Channel2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
   /* DMA1_Channel5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
