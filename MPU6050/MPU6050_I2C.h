@@ -5,10 +5,8 @@
  *      Author: Bulanov Konstantin
  */
 
-#ifndef INC_GY521_H_
-#define INC_GY521_H_
-
-#endif /* INC_GY521_H_ */
+#ifndef __MPU6050_I2C_H
+#define __MPU6050_I2C_H
 
 #include <stdint.h>
 #include "stm32f1xx_hal.h"
@@ -59,3 +57,5 @@ HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStru
 HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
 HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
 double Kalman_getAngle(Kalman_t *Kalman, double newAngle, double newRate, double dt);
+
+#endif /* __MPU6050_I2C_H */

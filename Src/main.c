@@ -21,11 +21,14 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "OLED_I2C.h"
-#include "MPU6050_I2C.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdbool.h>
+
+#include "OLED_I2C.h"
+#include "MPU6050_I2C.h"
 #include "stm32f1xx_it.h"
+#include "controller.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,12 +41,12 @@ typedef struct {
   uint8_t *activeBuf; // DMA 正在写入的那块(只在 ISR 里改)
   // 已收完整帧交给主循环读的那块（ISR 写，主循环读）
   uint8_t *volatile readyBuf; // pointer, instead of data, is volatile
-  volatile uint8_t frameReady;
+  volatile bool frameReady;
 } Laser;
 
 typedef struct {
   uint16_t count_raw;
-  uint8_t modified_flag;
+  bool modified_flag;
 } Rotary_encoder;
 /* USER CODE END PTD */
 
@@ -70,6 +73,7 @@ UART_HandleTypeDef huart3;
 DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
 DMA_HandleTypeDef hdma_usart3_tx;
+DMA_HandleTypeDef hdma_usart3_rx;
 
 /* USER CODE BEGIN PV */
 // 激光测距
@@ -567,6 +571,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel2_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
+  /* DMA1_Channel3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
   /* DMA1_Channel5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);

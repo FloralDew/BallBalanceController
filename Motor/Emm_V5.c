@@ -11,6 +11,8 @@
 
 __IO uint16_t MMCL_count = 0, MMCL_cmd[MMCL_LEN] = {0};
 
+extern UART_HandleTypeDef huart3; // 本项目中张大头连接uart3
+
 /**********************************************************
 *** 触发动作命令
 **********************************************************/
@@ -30,7 +32,7 @@ void Emm_V5_Trig_Encoder_Cal(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-	HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+	HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -49,7 +51,7 @@ void Emm_V5_Reset_Motor(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-	HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+	HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -68,7 +70,7 @@ void Emm_V5_Reset_CurPos_To_Zero(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-	HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+	HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -87,7 +89,7 @@ void Emm_V5_Reset_Clog_Pro(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -106,7 +108,7 @@ void Emm_V5_Restore_Motor(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-	HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+	HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**********************************************************
@@ -136,7 +138,7 @@ void Emm_V5_Multi_Motor_Cmd(uint8_t addr)
 		cmd[j] = 0x6B; ++j;                  // 校验字节
 		
 		// 发送命令
-		HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, j); MMCL_count = 0;
+		HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, j); MMCL_count = 0;
 	}
 	else
 	{
@@ -164,7 +166,7 @@ void Emm_V5_En_Control(uint8_t addr, bool state, bool snF)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -191,7 +193,7 @@ void Emm_V5_Vel_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, bo
   cmd[7] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 8);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 8);
 }
 
 /**
@@ -225,7 +227,7 @@ void Emm_V5_Pos_Control(uint8_t addr, uint8_t dir, uint16_t vel, uint8_t acc, ui
   cmd[12] =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 13);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 13);
 }
 
 /**
@@ -252,7 +254,7 @@ void Emm_V5_Set_QPos_Params(uint8_t addr, uint16_t vel, uint8_t acc, uint8_t raF
   cmd[7] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 8);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 8);
 }
 
 /**
@@ -275,7 +277,7 @@ void Emm_V5_QPos_Control(uint8_t addr, int32_t clk)
   cmd[6] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 7);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 7);
 }
 
 /**
@@ -296,7 +298,7 @@ void Emm_V5_Stop_Now(uint8_t addr, bool snF)
   cmd[4] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 5);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 5);
 }
 
 /**
@@ -315,7 +317,7 @@ void Emm_V5_Synchronous_motion(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**********************************************************
@@ -339,7 +341,7 @@ void Emm_V5_Origin_Set_O(uint8_t addr, bool svF)
   cmd[4] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 5);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 5);
 }
 
 /**
@@ -361,7 +363,7 @@ void Emm_V5_Origin_Trigger_Return(uint8_t addr, uint8_t o_mode, bool snF)
   cmd[4] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 5);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 5);
 }
 
 /**
@@ -380,7 +382,7 @@ void Emm_V5_Origin_Interrupt(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -398,7 +400,7 @@ void Emm_V5_Origin_Read_Params(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -442,7 +444,7 @@ void Emm_V5_Origin_Modify_Params(uint8_t addr, bool svF, uint8_t o_mode, uint8_t
   cmd[19] =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 20);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 20);
 }
 
 /**
@@ -460,7 +462,7 @@ void X_V2_Origin_Read_SL_RP(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -484,7 +486,7 @@ void X_V2_Origin_Modify_SL_RP(uint8_t addr, bool svF, uint16_t sl_rp)
   cmd[6]  =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 7);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 7);
 }
 
 /**********************************************************
@@ -537,7 +539,7 @@ void Emm_V5_Auto_Return_Sys_Params_Timed(uint8_t addr, SysParams_t s, uint16_t t
   cmd[i] = 0x6B; ++i;                   	// 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, i);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, i);
 }
 
 /**
@@ -579,7 +581,7 @@ void Emm_V5_Read_Sys_Params(uint8_t addr, SysParams_t s)
   cmd[i] = 0x6B; ++i;                   // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, i);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, i);
 }
 
 /**********************************************************
@@ -605,7 +607,7 @@ void Emm_V5_Modify_Motor_ID(uint8_t addr, bool svF, uint8_t id)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -628,7 +630,7 @@ void Emm_V5_Modify_MicroStep(uint8_t addr, bool svF, uint8_t mstep)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -648,7 +650,7 @@ void Emm_V5_Modify_PDFlag(uint8_t addr, bool pdf)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -666,7 +668,7 @@ void Emm_V5_Read_Opt_Param_Sta(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -691,7 +693,7 @@ void Emm_V5_Modify_Motor_Type(uint8_t addr, bool svF, bool mottype)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -714,7 +716,7 @@ void Emm_V5_Modify_Firmware_Type(uint8_t addr, bool svF, bool fwtype)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -737,7 +739,7 @@ void Emm_V5_Modify_Ctrl_Mode(uint8_t addr, bool svF, bool ctrl_mode)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -760,7 +762,7 @@ void Emm_V5_Modify_Motor_Dir(uint8_t addr, bool svF, bool dir)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -783,7 +785,7 @@ void Emm_V5_Modify_Lock_Btn(uint8_t addr, bool svF, bool lock)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -806,7 +808,7 @@ void Emm_V5_Modify_S_Vel(uint8_t addr, bool svF, bool s_vel)
   cmd[5] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 6);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 6);
 }
 
 /**
@@ -830,7 +832,7 @@ void Emm_V5_Modify_OM_mA(uint8_t addr, bool svF, uint16_t om_ma)
   cmd[6] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 7);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 7);
 }
 
 /**
@@ -854,7 +856,7 @@ void Emm_V5_Modify_FOC_mA(uint8_t addr, bool svF, uint16_t foc_mA)
   cmd[6] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 7);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 7);
 }
 
 /**
@@ -872,7 +874,7 @@ void Emm_V5_Read_PID_Params(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -908,7 +910,7 @@ void Emm_V5_Modify_PID_Params(uint8_t addr, bool svF, uint32_t kp, uint32_t ki, 
   cmd[16] =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 17);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 17);
 }
 
 /**
@@ -927,7 +929,7 @@ void Emm_V5_Read_DMX512_Params(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -969,7 +971,7 @@ void Emm_V5_Modify_DMX512_Params(uint8_t addr, bool svF, uint16_t tch, uint8_t n
   cmd[18] =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 19);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 19);
 }
 
 /**
@@ -987,7 +989,7 @@ void Emm_V5_Read_Pos_Window(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -1011,7 +1013,7 @@ void Emm_V5_Modify_Pos_Window(uint8_t addr, bool svF, uint16_t prw)
   cmd[6] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 7);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 7);
 }
 
 /**
@@ -1029,7 +1031,7 @@ void Emm_V5_Read_Otocp(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -1059,7 +1061,7 @@ void Emm_V5_Modify_Otocp(uint8_t addr, bool svF, uint16_t otp, uint16_t ocp, uin
   cmd[10] =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 11);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 11);
 }
 
 /**
@@ -1077,7 +1079,7 @@ void Emm_V5_Read_Heart_Protect(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -1103,7 +1105,7 @@ void Emm_V5_Modify_Heart_Protect(uint8_t addr, bool svF, uint32_t hp)
   cmd[8]  =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 9);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 9);
 }
 
 /**
@@ -1121,7 +1123,7 @@ void Emm_V5_Read_Integral_Limit(uint8_t addr)
   cmd[2] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 3);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 3);
 }
 
 /**
@@ -1147,7 +1149,7 @@ void Emm_V5_Modify_Integral_Limit(uint8_t addr, bool svF, uint32_t il)
   cmd[8]  =  0x6B;                      // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 9);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 9);
 }
 
 /**********************************************************
@@ -1169,7 +1171,7 @@ void Emm_V5_Read_System_State_Params(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 /**
@@ -1188,7 +1190,7 @@ void Emm_V5_Read_Motor_Conf_Params(uint8_t addr)
   cmd[3] =  0x6B;                       // 校验字节
   
   // 发送命令
-  HAL_UART_Transmit_DMA(&huart1, (uint8_t *)cmd, 4);
+  HAL_UART_Transmit_DMA(&huart3, (uint8_t *)cmd, 4);
 }
 
 

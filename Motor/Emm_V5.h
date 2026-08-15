@@ -1,7 +1,9 @@
 #ifndef __EMM_V5_H
 #define __EMM_V5_H
 
-#include "usart.h"
+// #include "usart.h"
+#include "stm32f1xx_hal.h"
+#include <stdbool.h>
 
 /**********************************************************
 ***	Emm_V5.0步进闭环控制例程
