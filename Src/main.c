@@ -261,7 +261,7 @@ int main(void)
         HAL_Delay(5);
         MX_I2C1_Init();
 
-        OLED_printf(0, 7, 12, 0, "F %d", i2c1_fault_cnt++);
+        OLED_printf(0, 7, 12, 0, "F %d", ++i2c1_fault_cnt);
       }
     }
 
