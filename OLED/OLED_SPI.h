@@ -1,13 +1,13 @@
 #ifndef __OLED_H
 #define __OLED_H
 
-#include "stm32f1xx_hal.h"
+#include "main.h"
 
 #define OLED_ADDRESS 0x78 // 通过调整0R电阻,屏可以0x78和0x7A两个地址 -- 默认0x78
 
 // void OLED_WR_CMD(uint8_t cmd);
 // void OLED_WR_DATA(uint8_t data);
-void OLED_Init(void);
+void OLED_Init(uint8_t contrast);
 void OLED_Clear(void);
 void OLED_Display_On(void);
 void OLED_Display_Off(void);

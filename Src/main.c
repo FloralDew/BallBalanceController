@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-#include "OLED_I2C.h"
+#include "OLED_SPI.h"
 #include "MPU6050_I2C.h"
 #include "stm32f1xx_it.h"
 #include "controller.h"
@@ -65,13 +65,16 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
+SPI_HandleTypeDef hspi2;
+DMA_HandleTypeDef hdma_spi2_tx;
+
 TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 UART_HandleTypeDef huart3;
-DMA_HandleTypeDef hdma_usart1_rx;
-DMA_HandleTypeDef hdma_usart2_tx;
+DMA_HandleTypeDef hdma_usart1_tx;
+DMA_HandleTypeDef hdma_usart2_rx;
 DMA_HandleTypeDef hdma_usart3_tx;
 DMA_HandleTypeDef hdma_usart3_rx;
 
@@ -103,6 +106,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_USART3_UART_Init(void);
+static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -112,7 +116,7 @@ static void MX_USART3_UART_Init(void);
 /*********************** interrupt callback **********************/
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma接收不定长数据的中断
 {
-  if (huart == &huart1)
+  if (huart == &huart2)
   {
     uint8_t *justFilled = laser.activeBuf; // 刚收完的这块
 
@@ -129,7 +133,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma
     // laser_readyLen = Size;
     laser.frameReady = 1;
 
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser.activeBuf, LASER_BUF_SIZE);
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
   }
 }
 
@@ -188,9 +192,10 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   MX_USART3_UART_Init();
+  MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   // Initialization
-  OLED_Init();
+  OLED_Init(0xff);
   OLED_Clear();
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_1);
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_2);
@@ -206,7 +211,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   // 接收不定长数据，64为最大长度. 同样必须打开uart1全局中断
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, laser.activeBuf, LASER_BUF_SIZE);
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
   int i2c1_fault_cnt = 0;
   float ball_target = 0.0f;
   while (1)
@@ -254,8 +259,8 @@ int main(void)
         sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
                 MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
         // sprintf(buf, "%d,%d,%d\n", MPU6050.Accel_X_RAW, MPU6050.Accel_Y_RAW, MPU6050.Accel_Z_RAW);
-        // if (huart2.gState == HAL_UART_STATE_READY)
-        HAL_UART_Transmit_DMA(&huart2, (uint8_t *)buf, strlen(buf)); // 必须也打开uart2的全局中断
+        // if (huart1.gState == HAL_UART_STATE_READY)
+        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)buf, strlen(buf)); // 必须也打开uart2的全局中断
       } else {
         HAL_I2C_DeInit(&hi2c1);
         HAL_Delay(5);
@@ -407,6 +412,44 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief SPI2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI2_Init(void)
+{
+
+  /* USER CODE BEGIN SPI2_Init 0 */
+
+  /* USER CODE END SPI2_Init 0 */
+
+  /* USER CODE BEGIN SPI2_Init 1 */
+
+  /* USER CODE END SPI2_Init 1 */
+  /* SPI2 parameter configuration*/
+  hspi2.Instance = SPI2;
+  hspi2.Init.Mode = SPI_MODE_MASTER;
+  hspi2.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.NSS = SPI_NSS_SOFT;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi2.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI2_Init 2 */
+
+  /* USER CODE END SPI2_Init 2 */
 
 }
 
@@ -574,12 +617,15 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel3_IRQn);
+  /* DMA1_Channel4_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
   /* DMA1_Channel5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
-  /* DMA1_Channel7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
+  /* DMA1_Channel6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
 
 }
 
@@ -590,6 +636,7 @@ static void MX_DMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
@@ -597,6 +644,26 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(OLED_SPI_DC_GPIO_Port, OLED_SPI_DC_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(OLED_SPI_RES_GPIO_Port, OLED_SPI_RES_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : OLED_SPI_DC_Pin */
+  GPIO_InitStruct.Pin = OLED_SPI_DC_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(OLED_SPI_DC_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : OLED_SPI_RES_Pin */
+  GPIO_InitStruct.Pin = OLED_SPI_RES_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(OLED_SPI_RES_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
