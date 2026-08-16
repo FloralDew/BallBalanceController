@@ -54,6 +54,7 @@ void Sched_Run(void)
 
         /* 累加式推进，避免误差长期累积导致周期漂移；
            若延误超过两个周期，直接重同步，防止追赶式连发 */
+           // 这就是不使用 last = now 的好处
         if (elapsed >= (uint32_t)t->period_ms * 2u)
             t->last_tick = now;
         else

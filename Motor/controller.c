@@ -22,21 +22,33 @@
 #include "pid.h"
 #include <math.h>
 
-/**
- * @brief  多次采样取均值，进一步压制 ±0.1° 的随机跳动
- */
-static float get_guideway_angle(void)
-{
-    const uint8_t N = 5;
-    float sum = 0.0f;
-    uint8_t i;
+/* ====================== 内部状态 ====================== */
+static PID_t s_pid;
+static Controller_State_t s_state = CONTROLLER_IDLE;
+static uint32_t s_t_start = 0;
+static uint32_t s_t_last = 0; /* 上一次控制动作时刻 */
+static uint8_t s_stable_cnt = 0;
 
-    for (i = 0; i < N; i++)
-    {
-        sum += MPU6050.KalmanAngleX;
-        HAL_Delay(10);
-    }
-    return sum / (float)N;
+#define ZG_AVG_WIN 4
+static float s_buf[ZG_AVG_WIN];
+static uint8_t s_buf_idx = 0;
+static uint8_t s_buf_cnt = 0;
+static float s_angle_avg = 0.0f;
+// static float s_last_out = 0.0f;
+
+void Guideway_FeedAngle(float angle)
+{
+    uint8_t i;
+    float sum = 0.0f;
+
+    s_buf[s_buf_idx] = angle;
+    s_buf_idx = (uint8_t)((s_buf_idx + 1u) % ZG_AVG_WIN);
+    if (s_buf_cnt < ZG_AVG_WIN)
+        s_buf_cnt++;
+
+    for (i = 0; i < s_buf_cnt; i++)
+        sum += s_buf[i];
+    s_angle_avg = sum / (float)s_buf_cnt;
 }
 
 /**
@@ -46,6 +58,8 @@ static float get_guideway_angle(void)
 static uint32_t zg_move(float delta_deg)
 {
     const int ZG_MIN_PULSE = 3; /* 小于该脉冲数不发命令，避免无意义抖动 */
+    const int ZERO_SPD_RPM = 10;
+    const int ZERO_ACC = 0;
 
     uint32_t pulse;
     uint8_t dir;
@@ -62,79 +76,102 @@ static uint32_t zg_move(float delta_deg)
         dir = DIR_CW;
 
     /* raF = 2：相对当前电机实时位置运动，不会累积历史目标位置误差 */
-    Emm_V5_Pos_Control(MOTOR_ADDR, dir, 1, 100, pulse, 2, false); // 速度为1rpm加速度为100
+    Emm_V5_Pos_Control(MOTOR_ADDR, dir, ZERO_SPD_RPM, ZERO_ACC, pulse, 2, false); // 速度为1rpm加速度为100
     return pulse;
 }
 
-/**
- * @brief  导轨自动回零（阻塞式）
- * @retval ZG_OK / ZG_ERR_TIMEOUT / ZG_ERR_SENSOR
- */
-uint8_t zero_guideway(void)
+#define ZG_DEADBAND 0.15f /* 死区，略大于 ±0.1° 的静态抖动 */
+#define ZG_TARGET_ANGLE 0.0f /* 目标角度 */
+
+void ZeroGuideway_Start(void)
 {
-    const float ZG_TARGET_ANGLE = 0.0f; /* 目标角度 */
-    const float ZG_DEADBAND = 0.15f;    /* 死区，略大于 ±0.1° 的静态抖动 */
-    const int ZG_CTRL_PERIOD_MS = 250; /* 控制周期ms，需 > 传感器延迟 + 运动时间 */
-    const float ZG_STABLE_CNT = 5;     /* 连续 N 拍在死区内才认为回零完成 */
-    const float ZG_MAX_STEP_DEG = 2.0f;  /* 单拍最大修正量（导轨度数），防止大步冲过头 */
     /* PID 参数：输出单位 = 导轨度数，误差单位 = 导轨度数。
     Kp = 1.0 相当于"一拍走完全部误差"，对有延迟的系统必然振荡，
     所以取 0.3~0.5，即每拍只吃掉一部分误差，靠多拍逼近 */
-    const float ZG_KP = 0.40f;
-    const float ZG_KI = 0.06f;
-    const float ZG_KD = 0.05f;
+    const float ZG_KP = 0.15f;
+    const float ZG_KI = 0.0f;
+    const float ZG_KD = 0.03f;
     const float ZG_INT_MAX = 5.0f; /* 积分限幅 */
     const float ZG_INT_SEP = 3.0f; /* |误差|>3° 时不积分，先靠 P 快速接近 */
     const float ZG_D_ALPHA = 0.3f; /* 微分低通，噪声大就再调小 */
+    
+    const float ZG_MAX_STEP_DEG = 2.0f; /* 单拍最大修正量（导轨度数），防止大步冲过头 */
 
-    PID_t pid;
-    uint32_t t_start, t_last, t_now;
-    float angle, out, dt;
-    uint8_t stable = 0;
+    PID_Init(&s_pid, ZG_KP, ZG_KI, ZG_KD);
+    PID_SetTarget(&s_pid, ZG_TARGET_ANGLE);
+    PID_SetOutputLimit(&s_pid, -ZG_MAX_STEP_DEG, ZG_MAX_STEP_DEG);
+    PID_SetIntegralLimit(&s_pid, ZG_INT_MAX, ZG_INT_SEP);
+    PID_SetDeadband(&s_pid, ZG_DEADBAND);
+    PID_SetDFilter(&s_pid, ZG_D_ALPHA);
 
-    /* ---- PID 初始化 ---- */
-    PID_Init(&pid, ZG_KP, ZG_KI, ZG_KD); // P, I, D
-    PID_SetTarget(&pid, ZG_TARGET_ANGLE);
-    PID_SetOutputLimit(&pid, -ZG_MAX_STEP_DEG, ZG_MAX_STEP_DEG); // 单拍最大修正角度
-                                                                // 之所以是角度是因为pid的单位是近似的角度
-    PID_SetIntegralLimit(&pid, ZG_INT_MAX, ZG_INT_SEP);
-    PID_SetDeadband(&pid, ZG_DEADBAND); // 在死区内自动 err=0
-    PID_SetDFilter(&pid, ZG_D_ALPHA);   // 微分低通，噪声大就再调小
-
-    t_start = HAL_GetTick();
-    t_last = t_start;
-
-    while (true)
-    {
-        /* ---- 1. 等待：让电机走完 + 卡尔曼角度跟上（>100ms 延迟） ---- */
-        HAL_Delay(ZG_CTRL_PERIOD_MS);
-
-        t_now = HAL_GetTick();
-        dt = (float)(t_now - t_last) / 1000.0f;
-        t_last = t_now;
-        if (dt <= 0.0f)
-            dt = (float)ZG_CTRL_PERIOD_MS / 1000.0f;
-
-        /* ---- 2. 采样 ---- */
-        angle = get_guideway_angle();
-
-        /* ---- 3. 收敛判定：连续多拍落在死区内 ---- */
-        if (fabsf(ZG_TARGET_ANGLE - angle) < ZG_DEADBAND)
-        {
-            if (++stable >= ZG_STABLE_CNT)
-                return ZG_OK;
-        }
-        else
-        {
-            stable = 0;
-        }
-
-        /* ---- 4. PID 运算并执行 ---- */
-        out = PID_Calc(&pid, angle, dt);
-        zg_move(out);
-
-        // /* ---- 5. 超时保护 ---- */
-        // if ((t_now - t_start) > ZG_TIMEOUT_MS)
-        //     return ZG_ERR_TIMEOUT;
-    }
+    s_t_start = HAL_GetTick();
+    s_t_last = s_t_start;
+    s_stable_cnt = 0;
+    // s_last_out = 0.0f;
+    s_state = CONTROLLER_RUNNING;
 }
+
+void ZeroGuideway_Abort(void)
+{
+    s_state = CONTROLLER_IDLE;
+}
+
+/**
+ * @brief  导轨自动回零
+ * @retval ZG_OK / ZERO_ERR_TIMEOUT / ZG_ERR_SENSOR
+ */
+Controller_State_t ZeroGuideway_Poll(void)
+{
+    const int ZG_CTRL_PERIOD_MS = 250; /* 控制周期ms，需 > 传感器延迟 + 运动时间 */
+    const float ZG_STABLE_CNT = 4;     /* 连续 N 拍在死区内才认为回零完成 */
+    const int ZG_TIMEOUT_MS = 30000;
+
+    uint32_t now;
+    float angle, out, dt;
+
+    if (s_state != CONTROLLER_RUNNING)
+        return s_state;
+
+    now = HAL_GetTick();
+
+    /* 节流：未到控制周期就直接返回，让出 CPU */
+    if ((now - s_t_last) < ZG_CTRL_PERIOD_MS)
+        return s_state;
+
+    dt = (float)(now - s_t_last) / 1000.0f;
+    s_t_last = now;
+
+    /* ---- 采样（已由 FeedAngle 滤波） ---- */
+    angle = s_angle_avg;
+
+    /* ---- 收敛判定：连续多拍落在死区内 ---- */
+    if (fabsf(ZG_TARGET_ANGLE - angle) < ZG_DEADBAND)
+    {
+        if (++s_stable_cnt >= ZG_STABLE_CNT)
+        {
+            s_state = ZERO_DONE;
+            return s_state;
+        }
+    }
+    else
+    {
+        s_stable_cnt = 0;
+    }
+
+    /* ---- PID 运算并执行 ---- */
+    out = PID_Calc(&s_pid, angle, dt);
+    // s_last_out = out;
+    zg_move(out);
+
+    /* ---- 超时保护 ---- */
+    if ((now - s_t_start) > ZG_TIMEOUT_MS)
+    {
+        s_state = ZERO_ERR_TIMEOUT;
+    }
+
+    return s_state;
+}
+
+Controller_State_t Controller_GetState(void) { return s_state; }
+float Guideway_GetAngle(void) { return s_angle_avg; }
+

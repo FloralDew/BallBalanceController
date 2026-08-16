@@ -207,8 +207,10 @@ static void task_rotary_encoder(void)
 static void task_read_mpu(void)
 {
   static int i2c1_fault_cnt = 0;
-  if (MPU6050_Read_All(&hi2c1, &MPU6050) != HAL_OK)
+  if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
   {
+    Guideway_FeedAngle(MPU6050.KalmanAngleX);
+  } else {
     HAL_I2C_DeInit(&hi2c1);
     HAL_Delay(2);
     MX_I2C1_Init();
@@ -233,10 +235,20 @@ static void task_display_uart(void)
 static void task_adc(void)
 {
   HAL_ADC_Start(&hadc1);                // 启动ADC常规序列
-  HAL_ADC_PollForConversion(&hadc1, 5); // 等待转换完成，us级. 超时时间单位为ms
+  HAL_ADC_PollForConversion(&hadc1, 1); // 等待转换完成，us级. 超时时间单位为ms
   uint32_t dr = HAL_ADC_GetValue(&hadc1);
   float motor_votage = dr * (3.3 - 0.0) / 4095.0;
   OLED_printf(15 * 6, 7, 12, 0, "%.2fV", motor_votage);
+}
+
+static void task_zero_guideway(void)
+{
+  ZeroGuideway_Poll();
+  if (Controller_GetState() == ZERO_DONE)
+  {
+    Sched_SetEnable(3, 0);
+    OLED_printf(0, 5, 12, 0, "ZEROED");
+  }
 }
 
 /* ---------- 任务表 ---------- */
@@ -244,7 +256,7 @@ static Task_t task_list[] = {
     {task_laser, 0, 1, 0},
     {task_rotary_encoder, 0, 1, 0},
     {task_read_mpu, 10, 1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
-    // {Task_Control, 10, 1, 0},
+    {task_zero_guideway, 50, 1, 0},
     {task_display_uart, 200, 1, 0},
     {task_adc, 1000, 1, 0},
 };
@@ -310,6 +322,8 @@ int main(void)
 	OLED_printf(6 * 12, 0, 12, 0, "rot: 0");
 
   Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
+  ZeroGuideway_Start();
+  OLED_printf(0, 5, 12, 0, "RUN");
   while (1)
   {
     Sched_Run();
