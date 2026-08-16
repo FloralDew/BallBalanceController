@@ -2,7 +2,6 @@
 #include "codetab.h" // 必须直接包含这个头文件，如果在oled_i2c.h中包含，此头文件中的变量无法找到
 #include <stdarg.h>
 #include <stdio.h>
-extern SPI_HandleTypeDef hspi2;
 
 // 注意这里直接使用了hi2c1句柄, 如果显示屏接的是别的i2c口, 需要改. 见h文件中的extern
 
@@ -276,14 +275,14 @@ void OLED_ShowString(uint8_t x, uint8_t y, char *chr, uint8_t charSize, uint8_t 
   */
 void OLED_printf(uint8_t x, uint8_t y, uint8_t charSize, uint8_t colorTurn, const char *fmt, ...)
 {
-    uint8_t STRING_BUF[256] = {0};
+    char STRING_BUF[256] = {0};
     va_list ap;
 
     va_start(ap, fmt);
-    vsnprintf((char *)STRING_BUF, sizeof(STRING_BUF), fmt, ap);
+    vsnprintf(STRING_BUF, sizeof(STRING_BUF), fmt, ap);
     va_end(ap);
 
-	OLED_ShowString(x, y, (char *)STRING_BUF, charSize, colorTurn);
+	OLED_ShowString(x, y, STRING_BUF, charSize, colorTurn);
 }
 
 /**

@@ -24,9 +24,8 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdarg.h>
 
-#include "OLED_SPI.h"
-#include "MPU6050_I2C.h"
 #include "stm32f1xx_it.h"
 #include "controller.h"
 /* USER CODE END Includes */
@@ -46,6 +45,7 @@ typedef struct {
 
 typedef struct {
   uint16_t count_raw;
+  float ball_target;
   bool modified_flag;
 } Rotary_encoder;
 /* USER CODE END PTD */
@@ -90,6 +90,7 @@ MPU6050_t MPU6050;
 // 旋转编码器
 Rotary_encoder rotary_encoder = {
   .count_raw = 0,
+  .ball_target = 0.0f,
   .modified_flag = 0
 };
 
@@ -112,10 +113,11 @@ static void MX_SPI2_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 /*********************** interrupt callback **********************/
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma接收不定长数据的中断
 {
-  if (huart == &huart2)
+  if (huart == &huart2) // 激光测距
   {
     uint8_t *justFilled = laser.activeBuf; // 刚收完的这块
 
@@ -133,6 +135,11 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size) // dma
     laser.frameReady = 1;
 
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
+  }
+  
+  if (huart == &huart3)
+  {
+    // 张大头反馈
   }
 }
 
@@ -153,6 +160,94 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
   }
 }
 
+/* Other functions */
+HAL_StatusTypeDef UART_DMA_printf(UART_HandleTypeDef *huart, const char *fmt, ...)
+{
+  static char STRING_BUF[256] = {0};
+  va_list ap;
+
+  va_start(ap, fmt);
+  vsnprintf(STRING_BUF, sizeof(STRING_BUF), fmt, ap);
+  va_end(ap);
+
+  return HAL_UART_Transmit_DMA(huart, (uint8_t *)STRING_BUF, strlen(STRING_BUF));
+}
+
+
+/* ************************ 调度器任务 *********************** */
+static void task_laser(void)
+{
+  if (laser.frameReady)
+  {
+    laser.frameReady = 0;
+    char *frame = (char *)laser.readyBuf; // 直接用，不需要拷贝
+
+    if (frame != NULL)
+    {
+      char *pos = strtok(frame, ",");
+      if (pos != NULL)
+      {
+        // OLED_Clear(0, 0);
+        OLED_printf(0, 0, 12, 0, "pos: %-6s", pos);
+      }
+    }
+  }
+}
+
+static void task_rotary_encoder(void)
+{
+  if (rotary_encoder.modified_flag)
+  {
+    rotary_encoder.modified_flag = 0;
+    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f;
+    OLED_printf(6 * 12, 0, 12, 0, "rot: %-5g", rotary_encoder.ball_target);
+  }
+}
+
+static void task_read_mpu(void)
+{
+  static int i2c1_fault_cnt = 0;
+  if (MPU6050_Read_All(&hi2c1, &MPU6050) != HAL_OK)
+  {
+    HAL_I2C_DeInit(&hi2c1);
+    HAL_Delay(2);
+    MX_I2C1_Init();
+
+    OLED_printf(0, 7, 12, 1, "I2C Fault %d", ++i2c1_fault_cnt);
+  }
+}
+
+static void task_display_uart(void)
+{
+  OLED_Clear(1, 4);
+  OLED_printf(0, 1, 12, 0, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
+  OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
+  OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050.Temperature);
+  OLED_printf(0, 4, 12, 0, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+  // 串口发送
+  // if (huart1.gState == HAL_UART_STATE_READY)
+  UART_DMA_printf(&huart1, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
+                  MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY); // 必须也打开uart2的全局中断
+}
+
+static void task_adc(void)
+{
+  HAL_ADC_Start(&hadc1);                // 启动ADC常规序列
+  HAL_ADC_PollForConversion(&hadc1, 5); // 等待转换完成，us级. 超时时间单位为ms
+  uint32_t dr = HAL_ADC_GetValue(&hadc1);
+  float motor_votage = dr * (3.3 - 0.0) / 4095.0;
+  OLED_printf(15 * 6, 7, 12, 0, "%.2fV", motor_votage);
+}
+
+/* ---------- 任务表 ---------- */
+static Task_t task_list[] = {
+    {task_laser, 0, 1, 0},
+    {task_rotary_encoder, 0, 1, 0},
+    {task_read_mpu, 10, 1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
+    // {Task_Control, 10, 1, 0},
+    {task_display_uart, 200, 1, 0},
+    {task_adc, 1000, 1, 0},
+};
 /* USER CODE END 0 */
 
 /**
@@ -213,71 +308,11 @@ int main(void)
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
 	
 	OLED_printf(6 * 12, 0, 12, 0, "rot: 0");
-  int i2c1_fault_cnt = 0;
-  float ball_target = 0.0f;
+
+  Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
   while (1)
   {
-    if (laser.frameReady)
-    {
-      laser.frameReady = 0;
-      char *frame = (char *)laser.readyBuf; // 直接用，不需要拷贝
-
-      if (frame != NULL)
-      {
-        char *pos = strtok(frame, ",");
-        if (pos != NULL)
-        {
-          // OLED_Clear(0, 0);
-          OLED_printf(0, 0, 12, 0, "pos: %-6s", pos);
-        }
-      }
-    }
-
-    if (rotary_encoder.modified_flag)
-    {
-      rotary_encoder.modified_flag = 0;
-      ball_target = rotary_encoder.count_raw / 4.0f;
-      OLED_printf(6 * 12, 0, 12, 0, "rot: %-5g", ball_target);
-    }
-
-    if (flag_100ms)
-    {
-      flag_100ms = 0;
-      if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
-      {
-        OLED_Clear(1, 4);
-        OLED_printf(0, 1, 12, 0, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
-        OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
-        OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050.Temperature);
-        OLED_printf(0, 4, 12, 0, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-        // OLED_printf(0, 1, 12, 0, "%.3f %.3f  ", MPU6050.Ay, MPU6050.Az);
-        // OLED_printf(0, 2, 12, 0, "%.2f ", MPU6050.KalmanAngleX);
-        // 串口发送
-        static char buf[256] = {0}; // dma非阻塞，必须设置为static，否则dma搬走的是垃圾
-        sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
-                MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-        // sprintf(buf, "%d,%d,%d\n", MPU6050.Accel_X_RAW, MPU6050.Accel_Y_RAW, MPU6050.Accel_Z_RAW);
-        // if (huart1.gState == HAL_UART_STATE_READY)
-        HAL_UART_Transmit_DMA(&huart1, (uint8_t *)buf, strlen(buf)); // 必须也打开uart2的全局中断
-      } else {
-        HAL_I2C_DeInit(&hi2c1);
-        HAL_Delay(5);
-        MX_I2C1_Init();
-
-        OLED_printf(0, 7, 12, 1, "I2C Fault %d", ++i2c1_fault_cnt);
-      }
-    }
-
-    if (flag_1s)
-    {
-      flag_1s = 0;
-      // OLED_Clear();
-			HAL_ADC_Start(&hadc1); // 启动ADC常规序列
-      HAL_ADC_PollForConversion(&hadc1, 5); // 等待转换完成，us级. 超时时间单位为ms
-      uint32_t dr = HAL_ADC_GetValue(&hadc1);
-      float motor_votage = dr * (3.3 - 0.0) / 4095.0;
-      OLED_printf(15 * 6, 7, 12, 0, "%.2fV", motor_votage);
-    }
+    Sched_Run();
 
     /* USER CODE END WHILE */
 

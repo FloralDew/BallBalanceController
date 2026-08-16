@@ -41,8 +41,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-volatile uint32_t ms_counter = 0;
-volatile uint8_t flag_1ms = 0, flag_10ms = 0, flag_100ms = 0, flag_1s = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -195,14 +194,7 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
-  ms_counter++;
-  flag_1ms = 1;
-  if (ms_counter % 10 == 0)
-    flag_10ms = 1;
-  if (ms_counter % 100 == 0)
-    flag_100ms = 1;
-  if (ms_counter % 1000 == 0)
-    flag_1s = 1;
+
   /* USER CODE END SysTick_IRQn 1 */
 }
 

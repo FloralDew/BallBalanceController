@@ -37,8 +37,7 @@
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-extern volatile uint32_t ms_counter;
-extern volatile uint8_t flag_1ms, flag_10ms, flag_100ms, flag_1s;
+
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
