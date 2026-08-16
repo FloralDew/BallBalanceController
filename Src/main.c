@@ -66,7 +66,6 @@ ADC_HandleTypeDef hadc1;
 I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi2;
-DMA_HandleTypeDef hdma_spi2_tx;
 
 TIM_HandleTypeDef htim3;
 
@@ -195,8 +194,8 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   // Initialization
-  OLED_Init(0xff);
-  OLED_Clear();
+  OLED_Init(0x8f);
+  OLED_Clear(0, 7);
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_1);
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_2);
 
@@ -204,7 +203,7 @@ int main(void)
   while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
   OLED_ShowString(0, 0, "MPU Calibrating...", 12, 0);
   MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
-  OLED_Clear();
+  OLED_Clear(0, 7);
   // OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1), 3, 16, 0);
   /* USER CODE END 2 */
 
@@ -212,11 +211,12 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   // 接收不定长数据，64为最大长度. 同样必须打开uart1全局中断
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
+	
+	OLED_printf(6 * 12, 0, 12, 0, "rot: 0");
   int i2c1_fault_cnt = 0;
   float ball_target = 0.0f;
   while (1)
   {
-		// OLED_Clear();
     if (laser.frameReady)
     {
       laser.frameReady = 0;
@@ -227,7 +227,8 @@ int main(void)
         char *pos = strtok(frame, ",");
         if (pos != NULL)
         {
-          OLED_printf(0, 0, 12, 0, "%s  ", pos);
+          // OLED_Clear(0, 0);
+          OLED_printf(0, 0, 12, 0, "pos: %-6s", pos);
         }
       }
     }
@@ -236,7 +237,7 @@ int main(void)
     {
       rotary_encoder.modified_flag = 0;
       ball_target = rotary_encoder.count_raw / 4.0f;
-      OLED_printf(80, 0, 12, 0, "%g   ", ball_target);
+      OLED_printf(6 * 12, 0, 12, 0, "rot: %-5g", ball_target);
     }
 
     if (flag_100ms)
@@ -244,16 +245,13 @@ int main(void)
       flag_100ms = 0;
       if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
       {
-        // sprintf(buf, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
-        // OLED_ShowString(0, 1, buf, 12, 0);
-        // sprintf(buf, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
-        // OLED_ShowString(0, 2, buf, 12, 0);
-        // sprintf(buf, "temp %.2f", MPU6050.Temperature);
-        // OLED_ShowString(0, 3, buf, 12, 0);
-        // sprintf(buf, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
-        // OLED_ShowString(0, 4, buf, 12, 0);
-        OLED_printf(0, 1, 12, 0, "%.3f %.3f  ", MPU6050.Ay, MPU6050.Az);
-        OLED_printf(0, 2, 12, 0, "%.2f ", MPU6050.KalmanAngleX);
+        OLED_Clear(1, 4);
+        OLED_printf(0, 1, 12, 0, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
+        OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
+        OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050.Temperature);
+        OLED_printf(0, 4, 12, 0, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+        // OLED_printf(0, 1, 12, 0, "%.3f %.3f  ", MPU6050.Ay, MPU6050.Az);
+        // OLED_printf(0, 2, 12, 0, "%.2f ", MPU6050.KalmanAngleX);
         // 串口发送
         static char buf[256] = {0}; // dma非阻塞，必须设置为static，否则dma搬走的是垃圾
         sprintf(buf, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
@@ -266,19 +264,19 @@ int main(void)
         HAL_Delay(5);
         MX_I2C1_Init();
 
-        OLED_printf(0, 7, 12, 0, "F %d", ++i2c1_fault_cnt);
+        OLED_printf(0, 7, 12, 1, "I2C Fault %d", ++i2c1_fault_cnt);
       }
     }
 
     if (flag_1s)
     {
       flag_1s = 0;
-      // // OLED_Clear();
-			// HAL_ADC_Start(&hadc1); // 启动ADC常规序列
-      // HAL_ADC_PollForConversion(&hadc1, 5); // 等待转换完成，us级. 超时时间单位为ms
-      // uint32_t dr = HAL_ADC_GetValue(&hadc1);
-      // float motor_votage = dr * (3.3 - 0.0) / 4095.0;
-      // OLED_ShowFloat(16 * 6, 7, motor_votage, 2, 2, 12, 0);
+      // OLED_Clear();
+			HAL_ADC_Start(&hadc1); // 启动ADC常规序列
+      HAL_ADC_PollForConversion(&hadc1, 5); // 等待转换完成，us级. 超时时间单位为ms
+      uint32_t dr = HAL_ADC_GetValue(&hadc1);
+      float motor_votage = dr * (3.3 - 0.0) / 4095.0;
+      OLED_printf(15 * 6, 7, 12, 0, "%.2fV", motor_votage);
     }
 
     /* USER CODE END WHILE */
@@ -620,9 +618,6 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel4_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
-  /* DMA1_Channel5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
   /* DMA1_Channel6_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);

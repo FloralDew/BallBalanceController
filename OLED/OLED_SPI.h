@@ -8,7 +8,7 @@
 // void OLED_WR_CMD(uint8_t cmd);
 // void OLED_WR_DATA(uint8_t data);
 void OLED_Init(uint8_t contrast);
-void OLED_Clear(void);
+void OLED_Clear(uint8_t start, uint8_t end);
 void OLED_Display_On(void);
 void OLED_Display_Off(void);
 void OLED_Set_Pos(uint8_t x, uint8_t y);
