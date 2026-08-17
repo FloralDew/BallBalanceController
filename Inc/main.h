@@ -54,6 +54,7 @@ typedef enum
 /* USER CODE BEGIN EC */
 extern SPI_HandleTypeDef hspi2;
 // extern MPU6050_t MPU6050;
+
 extern UART_HandleTypeDef huart3; // 本项目中张大头连接uart3
 
 /* USER CODE END EC */

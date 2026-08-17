@@ -86,7 +86,7 @@ Laser laser = {
 }; // 只初始化了部分成员，其他成员自动置0.（数组则置全0, 指针NULL）
 // 全局不能写赋值这样的可执行语句. 只有在函数体内可以
 // mpu6050
-MPU6050_t MPU6050;
+MPU6050_t MPU6050_gw;
 // 旋转编码器
 Rotary_encoder rotary_encoder = {
   .count_raw = 0,
@@ -207,9 +207,9 @@ static void task_rotary_encoder(void)
 static void task_read_mpu(void)
 {
   static int i2c1_fault_cnt = 0;
-  if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
+  if (MPU6050_Read_All(&hi2c1, &MPU6050_gw) == HAL_OK)
   {
-    Guideway_FeedAngle(MPU6050.KalmanAngleX); // 外部给予回零程序当前角度
+    Guideway_FeedAngle(MPU6050_gw.KalmanAngleX); // 外部给予回零程序当前角度
   } else {
     HAL_I2C_DeInit(&hi2c1);
     HAL_Delay(2);
@@ -222,20 +222,20 @@ static void task_read_mpu(void)
 static void task_display_uart(void)
 {
   OLED_Clear(1, 2);
-  OLED_printf(0, 1, 12, 0, "ac_yz %.3f %.3f", MPU6050.Ay, MPU6050.Az);
-  // OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
-  // OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050.Temperature);
-  OLED_printf(0, 2, 12, 0, "euler_x %.2f", MPU6050.KalmanAngleX);
+  // OLED_printf(0, 1, 12, 0, "ac_yz %.3f %.3f", MPU6050_gw.Ay, MPU6050_gw.Az);
+  // OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050_gw.Gx, MPU6050_gw.Gy, MPU6050_gw.Gz);
+  // OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050_gw.Temperature);
+  OLED_printf(0, 2, 12, 0, "euler_x %.2f", MPU6050_gw.KalmanAngleX);
   // 串口发送
   // if (huart1.gState == HAL_UART_STATE_READY)
-  UART_DMA_printf(&huart1, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
-                  MPU6050.Gx, MPU6050.Gy, MPU6050.Gz, MPU6050.Temperature, MPU6050.KalmanAngleX, MPU6050.KalmanAngleY); // 必须也打开uart2的全局中断
+  UART_DMA_printf(&huart1, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050_gw.Ax, MPU6050_gw.Ay, MPU6050_gw.Az,
+                  MPU6050_gw.Gx, MPU6050_gw.Gy, MPU6050_gw.Gz, MPU6050_gw.Temperature, MPU6050_gw.KalmanAngleX, MPU6050_gw.KalmanAngleY); // 必须也打开uart2的全局中断
 }
 
 static void task_adc(void)
 {
   HAL_ADC_Start(&hadc1);                // 启动ADC常规序列
-  HAL_ADC_PollForConversion(&hadc1, 1); // 等待转换完成，us级. 超时时间单位为ms
+  HAL_ADC_PollForConversion(&hadc1, 1); // 等待转换完成，轮询，us级. 超时时间单位为ms
   uint32_t dr = HAL_ADC_GetValue(&hadc1);
   float motor_votage = dr * (3.3 - 0.0) / 4095.0;
   OLED_printf(15, 7, 12, 0, "%.2fV", motor_votage);
@@ -244,9 +244,11 @@ static void task_adc(void)
 static void task_zero_guideway(void)
 {
   ZeroGuideway_Poll();
-  if (Controller_GetState() == CONTROLLER_ZERO_DONE)
+  if (Controller_GetState() == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_ZERO_GUIDEWAY, 0);
+    static uint8_t cmd[] = {MOTOR_ADDR, 0x0a, 0x6d, 0x6b}; // 将当前位置角度清零
+    HAL_UART_Transmit_DMA(&huart3, cmd, sizeof(cmd));
     OLED_Clear(5, 5);
     Show_State_On_OLED(0, 5, 12, 1);
   }
@@ -257,7 +259,7 @@ static Task_t task_list[TASK_COUNT] = {
     [TASK_LASER] = {task_laser, 0, 1, 0},
     [TASK_ROTARY_ENCODER] = {task_rotary_encoder, 0, 1, 0},
     [TASK_READ_MPU] = {task_read_mpu, 10, 1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
-    [TASK_ZERO_GUIDEWAY] = {task_zero_guideway, 50, 1, 0},
+    [TASK_ZERO_GUIDEWAY] = {task_zero_guideway, 50, 0, 0},
     [TASK_DISPLAY_UART] = {task_display_uart, 200, 1, 0},
     [TASK_ADC] = {task_adc, 1000, 1, 0},
 };
@@ -309,8 +311,8 @@ int main(void)
 
   // OLED_ShowString(0, 0, "MPU Initializing...", 12, 0);
   while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
-  OLED_ShowString(0, 0, "MPU Calibrating...", 12, 0);
-  MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
+  OLED_printf(0, 0, 12, 0, "MPU Calibrating...");
+  MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050_gw, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
   OLED_Clear(0, 7);
   // OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1), 3, 16, 0);
   /* USER CODE END 2 */
@@ -324,6 +326,7 @@ int main(void)
 
   Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
   ZeroGuideway_Start();
+  Sched_SetEnable(TASK_ZERO_GUIDEWAY, 1);
   Show_State_On_OLED(0, 5, 12, 1);
   while (1)
   {
