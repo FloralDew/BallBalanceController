@@ -2,13 +2,13 @@
 #include "Emm_V5.h"
 
 /* ================== 硬件相关参数（必须按实际标定） ================== */
-#define DIR_CW 0  /* 接口定义：0 = CW */
-#define DIR_CCW 1 /* 非 0 = CCW */
+#define MOTOR_DIR_CW 0  /* 接口定义：0 = CW */
+#define MOTOR_DIR_CCW 1 /* 非 0 = CCW */
 
 const char *controller_state_str[CONTROLLER_STATE_COUNT] =
 {
     [CONTROLLER_IDLE] = "IDLE",
-    [CONTROLLER_ZERO_RUNNING] = "ZERO_RUNNING",
+    [CONTROLLER_ZEROING] = "ZEROING",
     // [CONTROLLER_ZERO_DONE] = "ZERO_DONE"
     [CONTROLLER_GET_LUT] = "GET_LUT"
 };
@@ -31,16 +31,12 @@ const char *controller_state_str[CONTROLLER_STATE_COUNT] =
 #include <math.h>
 
 /* ====================== 内部状态 ====================== */
-static PID_t s_pid;
 static Controller_State_t s_state = CONTROLLER_IDLE;
-static uint32_t s_t_start = 0;
-static uint32_t s_t_last = 0; /* 上一次控制动作时刻 */
-static uint8_t s_stable_cnt = 0;
 
 #define ZG_AVG_WIN 4
-static float s_buf[ZG_AVG_WIN];
-static uint8_t s_buf_idx = 0;
-static uint8_t s_buf_cnt = 0;
+static float s_fa_buf[ZG_AVG_WIN];
+static uint8_t s_fa_buf_idx = 0;
+static uint8_t s_fa_buf_cnt = 0;
 static float s_angle_avg = 0.0f;
 // static float s_last_out = 0.0f;
 
@@ -49,14 +45,14 @@ void Guideway_FeedAngle(float angle)
     uint8_t i;
     float sum = 0.0f;
 
-    s_buf[s_buf_idx] = angle;
-    s_buf_idx = (uint8_t)((s_buf_idx + 1u) % ZG_AVG_WIN);
-    if (s_buf_cnt < ZG_AVG_WIN)
-        s_buf_cnt++;
+    s_fa_buf[s_fa_buf_idx] = angle;
+    s_fa_buf_idx = (uint8_t)((s_fa_buf_idx + 1u) % ZG_AVG_WIN);
+    if (s_fa_buf_cnt < ZG_AVG_WIN)
+        s_fa_buf_cnt++;
 
-    for (i = 0; i < s_buf_cnt; i++)
-        sum += s_buf[i];
-    s_angle_avg = sum / (float)s_buf_cnt;
+    for (i = 0; i < s_fa_buf_cnt; i++)
+        sum += s_fa_buf[i];
+    s_angle_avg = sum / (float)s_fa_buf_cnt;
 }
 
 void Controller_Abort(void)
@@ -72,11 +68,21 @@ void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colo
 
 float Guideway_GetAngle(void) { return s_angle_avg; }
 
+void Motor_Return_Origin(void)
+{
+    Emm_V5_Origin_Trigger_Return(MOTOR_ADDR, 0, false);
+}
+
 /* ***************** 控制器通用函数结束 ******************** */
 
 /* ******************* 导轨回零 ******************* */
 #define ZG_DEADBAND 0.15f /* 死区，略大于 ±0.1° 的静态抖动 */
 #define ZG_TARGET_ANGLE 0.0f /* 目标角度 */
+
+static PID_t s_zg_pid;
+static uint32_t s_t_start = 0;
+static uint32_t s_t_last = 0; /* 上一次控制动作时刻 */
+static uint8_t s_zg_stable_cnt = 0;
 
 void ZeroGuideway_Start(void)
 {
@@ -94,18 +100,18 @@ void ZeroGuideway_Start(void)
     
     const float ZG_MAX_STEP_DEG = 2.0f; /* 单拍最大修正量（导轨度数），防止大步冲过头 */
 
-    PID_Init(&s_pid, ZG_KP, ZG_KI, ZG_KD);
-    PID_SetTarget(&s_pid, ZG_TARGET_ANGLE);
-    PID_SetOutputLimit(&s_pid, -ZG_MAX_STEP_DEG, ZG_MAX_STEP_DEG);
-    PID_SetIntegralLimit(&s_pid, ZG_INT_MAX, ZG_INT_SEP);
-    PID_SetDeadband(&s_pid, ZG_DEADBAND);
-    PID_SetDFilter(&s_pid, ZG_D_ALPHA);
+    PID_Init(&s_zg_pid, ZG_KP, ZG_KI, ZG_KD);
+    PID_SetTarget(&s_zg_pid, ZG_TARGET_ANGLE);
+    PID_SetOutputLimit(&s_zg_pid, -ZG_MAX_STEP_DEG, ZG_MAX_STEP_DEG);
+    PID_SetIntegralLimit(&s_zg_pid, ZG_INT_MAX, ZG_INT_SEP);
+    PID_SetDeadband(&s_zg_pid, ZG_DEADBAND);
+    PID_SetDFilter(&s_zg_pid, ZG_D_ALPHA);
 
     s_t_start = HAL_GetTick();
     s_t_last = s_t_start;
-    s_stable_cnt = 0;
+    s_zg_stable_cnt = 0;
     // s_last_out = 0.0f;
-    s_state = CONTROLLER_ZERO_RUNNING;
+    s_state = CONTROLLER_ZEROING;
 }
 
 /**
@@ -123,7 +129,7 @@ Controller_State_t ZeroGuideway_Poll(void)
     uint32_t now;
     float angle, out_deg, dt;
 
-    if (s_state != CONTROLLER_ZERO_RUNNING)
+    if (s_state != CONTROLLER_ZEROING)
         return s_state;
 
     now = HAL_GetTick();
@@ -141,19 +147,20 @@ Controller_State_t ZeroGuideway_Poll(void)
     /* ---- 收敛判定：连续多拍落在死区内 ---- */
     if (fabsf(ZG_TARGET_ANGLE - angle) < ZG_DEADBAND)
     {
-        if (++s_stable_cnt >= ZG_STABLE_CNT)
+        if (++s_zg_stable_cnt >= ZG_STABLE_CNT)
         {
             s_state = CONTROLLER_IDLE;
+            Emm_V5_Origin_Set_O(MOTOR_ADDR, true); // 设置单圈回零零点位置，写入flash
             return s_state;
         }
     }
     else
     {
-        s_stable_cnt = 0;
+        s_zg_stable_cnt = 0;
     }
 
     /* ---- PID 运算并执行 ---- */
-    out_deg = PID_Calc(&s_pid, angle, dt); // 单位为deg
+    out_deg = PID_Calc(&s_zg_pid, angle, dt); // 单位为deg
     // s_last_out = out_deg;
 
     uint32_t pulse;
@@ -165,9 +172,9 @@ Controller_State_t ZeroGuideway_Poll(void)
     {
         /* 误差为正（当前角度偏小，需要角度增大）→ 电机 CCW */
         if (out_deg > 0.0f)
-            dir = DIR_CCW;
+            dir = MOTOR_DIR_CCW;
         else
-            dir = DIR_CW;
+            dir = MOTOR_DIR_CW;
 
         /* raF = 2：相对当前电机实时位置运动，不会累积历史目标位置误差 */
         Emm_V5_Pos_Control(MOTOR_ADDR, dir, ZERO_SPD_RPM, ZERO_ACC, pulse, 2, false);
@@ -175,18 +182,35 @@ Controller_State_t ZeroGuideway_Poll(void)
     return s_state;
 }
 
-/* ******************************* 获取LUT ************************************ */
+/* *************************** 获取LUT ***************************** */
 
-void Get_Guideway_LUT_Start(void)
+void Get_Guideway_LUT_Start(void) // 应在回零后调用
 {
-    s_state = 
+    s_state = CONTROLLER_GET_LUT;
 }
 
-Controller_State_t Get_Guideway_LUT_Poll(void)
+void Get_Guideway_LUT_Poll(int pulse)
 {
+    const int SPD = 20;
+    const int ACC = 0;
+    if (s_state != CONTROLLER_GET_LUT)
+        return;
 
+    uint8_t dir = MOTOR_DIR_CW; // 当pulse > 0时向下倾斜，MPU读取angle < 0
+    if (pulse < 0) {
+        dir = MOTOR_DIR_CCW;
+    }
+    pulse = ABS(pulse);
+    Emm_V5_Pos_Control(MOTOR_ADDR, dir, SPD, ACC, pulse, 1, false); // 绝对位置
 }
 
-
-
-
+static double Calc_Pulse_By_Angle(double target_angle)
+{
+    const double OFFSET = 0.5867950943;
+    double sqared = target_angle * target_angle;
+    double cubed = sqared * target_angle;
+    double pulse = ((5.867950943 - 35.58989338 * target_angle + 3.704467377 * sqared - 0.09361729684 * cubed) /
+                    (1 - 0.1031174851 * target_angle + 0.002126693238 * sqared + 0.00002505123008 * cubed)) -
+                   OFFSET;
+    return pulse;
+}

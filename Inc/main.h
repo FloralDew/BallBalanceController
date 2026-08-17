@@ -44,6 +44,7 @@ typedef enum
   TASK_ROTARY_ENCODER,
   TASK_READ_MPU,
   TASK_ZERO_GUIDEWAY,
+  TASK_GET_LUT,
   TASK_DISPLAY_UART,
   TASK_ADC,
   TASK_COUNT /* 自动等于任务个数 */
@@ -55,6 +56,7 @@ typedef enum
 extern SPI_HandleTypeDef hspi2;
 // extern MPU6050_t MPU6050;
 
+// extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart3; // 本项目中张大头连接uart3
 
 /* USER CODE END EC */
@@ -68,7 +70,7 @@ extern UART_HandleTypeDef huart3; // 本项目中张大头连接uart3
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
-
+// HAL_StatusTypeDef UART_DMA_printf(UART_HandleTypeDef *huart, const char *fmt, ...);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
