@@ -38,7 +38,16 @@ extern "C" {
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+typedef enum
+{
+  TASK_LASER = 0,
+  TASK_ROTARY_ENCODER,
+  TASK_READ_MPU,
+  TASK_ZERO_GUIDEWAY,
+  TASK_DISPLAY_UART,
+  TASK_ADC,
+  TASK_COUNT /* 自动等于任务个数 */
+} TaskId_t;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/

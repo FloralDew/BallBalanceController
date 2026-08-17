@@ -188,7 +188,7 @@ static void task_laser(void)
       if (pos != NULL)
       {
         // OLED_Clear(0, 0);
-        OLED_printf(0, 0, 12, 0, "pos: %-6s", pos);
+        OLED_printf(0, 0, 12, 0, "pos: %-7s", pos);
       }
     }
   }
@@ -200,7 +200,7 @@ static void task_rotary_encoder(void)
   {
     rotary_encoder.modified_flag = 0;
     rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f;
-    OLED_printf(6 * 12, 0, 12, 0, "rot: %-5g", rotary_encoder.ball_target);
+    OLED_printf(12, 0, 12, 0, "rot: %-4g", rotary_encoder.ball_target);
   }
 }
 
@@ -209,7 +209,7 @@ static void task_read_mpu(void)
   static int i2c1_fault_cnt = 0;
   if (MPU6050_Read_All(&hi2c1, &MPU6050) == HAL_OK)
   {
-    Guideway_FeedAngle(MPU6050.KalmanAngleX);
+    Guideway_FeedAngle(MPU6050.KalmanAngleX); // 外部给予回零程序当前角度
   } else {
     HAL_I2C_DeInit(&hi2c1);
     HAL_Delay(2);
@@ -221,11 +221,11 @@ static void task_read_mpu(void)
 
 static void task_display_uart(void)
 {
-  OLED_Clear(1, 4);
-  OLED_printf(0, 1, 12, 0, "ac %.2f %.2f %.2f", MPU6050.Ax, MPU6050.Ay, MPU6050.Az);
-  OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
-  OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050.Temperature);
-  OLED_printf(0, 4, 12, 0, "Euler %.2f %.2f", MPU6050.KalmanAngleX, MPU6050.KalmanAngleY);
+  OLED_Clear(1, 2);
+  OLED_printf(0, 1, 12, 0, "ac_yz %.3f %.3f", MPU6050.Ay, MPU6050.Az);
+  // OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050.Gx, MPU6050.Gy, MPU6050.Gz);
+  // OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050.Temperature);
+  OLED_printf(0, 2, 12, 0, "euler_x %.2f", MPU6050.KalmanAngleX);
   // 串口发送
   // if (huart1.gState == HAL_UART_STATE_READY)
   UART_DMA_printf(&huart1, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050.Ax, MPU6050.Ay, MPU6050.Az,
@@ -238,27 +238,28 @@ static void task_adc(void)
   HAL_ADC_PollForConversion(&hadc1, 1); // 等待转换完成，us级. 超时时间单位为ms
   uint32_t dr = HAL_ADC_GetValue(&hadc1);
   float motor_votage = dr * (3.3 - 0.0) / 4095.0;
-  OLED_printf(15 * 6, 7, 12, 0, "%.2fV", motor_votage);
+  OLED_printf(15, 7, 12, 0, "%.2fV", motor_votage);
 }
 
 static void task_zero_guideway(void)
 {
   ZeroGuideway_Poll();
-  if (Controller_GetState() == ZERO_DONE)
+  if (Controller_GetState() == CONTROLLER_ZERO_DONE)
   {
-    Sched_SetEnable(3, 0);
-    OLED_printf(0, 5, 12, 0, "ZEROED");
+    Sched_SetEnable(TASK_ZERO_GUIDEWAY, 0);
+    OLED_Clear(5, 5);
+    Show_State_On_OLED(0, 5, 12, 1);
   }
 }
 
 /* ---------- 任务表 ---------- */
-static Task_t task_list[] = {
-    {task_laser, 0, 1, 0},
-    {task_rotary_encoder, 0, 1, 0},
-    {task_read_mpu, 10, 1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
-    {task_zero_guideway, 50, 1, 0},
-    {task_display_uart, 200, 1, 0},
-    {task_adc, 1000, 1, 0},
+static Task_t task_list[TASK_COUNT] = {
+    [TASK_LASER] = {task_laser, 0, 1, 0},
+    [TASK_ROTARY_ENCODER] = {task_rotary_encoder, 0, 1, 0},
+    [TASK_READ_MPU] = {task_read_mpu, 10, 1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
+    [TASK_ZERO_GUIDEWAY] = {task_zero_guideway, 50, 1, 0},
+    [TASK_DISPLAY_UART] = {task_display_uart, 200, 1, 0},
+    [TASK_ADC] = {task_adc, 1000, 1, 0},
 };
 /* USER CODE END 0 */
 
@@ -316,14 +317,14 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  // 接收不定长数据，64为最大长度. 同样必须打开uart1全局中断
+  // 接收不定长数据，LASER_BUF_SIZE为最大长度. 同样必须打开uart1全局中断
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
 	
-	OLED_printf(6 * 12, 0, 12, 0, "rot: 0");
+	OLED_printf(12, 0, 12, 0, "rot: 0");
 
   Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
   ZeroGuideway_Start();
-  OLED_printf(0, 5, 12, 0, "RUN");
+  Show_State_On_OLED(0, 5, 12, 1);
   while (1)
   {
     Sched_Run();

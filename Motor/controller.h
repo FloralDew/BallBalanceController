@@ -7,12 +7,14 @@
 
 typedef enum
 {
-  CONTROLLER_IDLE = 0,    /* 未启动 / 已停止 */
-  // ZG_SETTLING,    /* 已发出运动指令，等待电机走完 + 传感器延迟 */
-  CONTROLLER_RUNNING,     /* 正在闭环调节 */
-  ZERO_DONE,        /* 回零成功 */
-  ZERO_ERR_TIMEOUT, /* 超时失败 */
+    CONTROLLER_IDLE = 0, /* 未启动 / 已停止 */
+    // ZG_SETTLING,    /* 已发出运动指令，等待电机走完 + 传感器延迟 */
+    CONTROLLER_ZERO_RUNNING,     /* 正在闭环调节 */
+    CONTROLLER_ZERO_DONE,        /* 回零成功 */
+    CONTROLLER_STATE_COUNT
 } Controller_State_t;
+
+extern const char *state_str[CONTROLLER_STATE_COUNT];
 
 /**
  * @brief  以固定周期喂入角度（建议放在 10ms 的 MPU 采集任务里）
@@ -34,8 +36,9 @@ void ZeroGuideway_Abort(void);
 Controller_State_t ZeroGuideway_Poll(void);
 
 Controller_State_t Controller_GetState(void);
+void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colorTurn);
 
-/** 便于调试：当前滤波后角度 / 上一次 PID 输出（度） */
+/** 便于调试：当前滤波后角度 **/
 float Guideway_GetAngle(void);
 
 #endif

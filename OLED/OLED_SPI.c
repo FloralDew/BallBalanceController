@@ -100,15 +100,15 @@ void OLED_Init(uint8_t contrast)
 // }
 
 /**
- * @function: void OLED_Set_Pos(uint8_t x, uint8_t y)
+ * @function: void OLED_Set_Pos(uint8_t x, uint8_t row)
  * @description: 坐标设置
- * @param {uint8_t} x,y
+ * @param {uint8_t} x,row
  * @return {*}
  */
-void OLED_Set_Pos(uint8_t x, uint8_t y)
+void OLED_Set_Pos(uint8_t x, uint8_t row)
 {
 	x += COLUMN_ADDRESS_SHIFT;
-	OLED_WR_CMD(0xb0 + y);				   // 设置页地址（0-7）
+	OLED_WR_CMD(0xb0 + row);				   // 设置页地址（0-7）
 	OLED_WR_CMD(((x & 0xf0) >> 4) | 0x10); // 设置显示位置—列高地址
 	OLED_WR_CMD((x) & 0x0f);			   // 设置显示位置—列低地址
 }
@@ -169,7 +169,7 @@ unsigned int oled_pow(uint8_t m, uint8_t n)
 }
 
 /**
- * @function: void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t chr, uint8_t charSize,uint8_t colorTurn)
+ * @function: void OLED_ShowChar(uint8_t x, uint8_t row, uint8_t chr, uint8_t charSize,uint8_t colorTurn)
  * @description: 在OLED12864特定位置开始显示一个字符
  * @param {uint8_t} x字符开始显示的横坐标
  * @param {uint8_t} y字符开始显示的纵坐标
@@ -178,7 +178,7 @@ unsigned int oled_pow(uint8_t m, uint8_t n)
  * @param {uint8_t} colorTurn是否反相显示(1反相、0不反相)
  * @return {*}
  */
-void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t chr, uint8_t charSize, uint8_t colorTurn)
+void OLED_ShowChar(uint8_t x, uint8_t row, uint8_t chr, uint8_t charSize, uint8_t colorTurn)
 {
 	unsigned char c = 0, i = 0;
 	c = chr - ' '; // 得到偏移后的值
@@ -186,13 +186,13 @@ void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t chr, uint8_t charSize, uint8_t 
 	{
 		x = 0;
 		if (charSize == 12)
-			y++;
+			row++;
 		else
-			y += 2;
+			row += 2;
 	}
 	if (charSize == 16)
 	{
-		OLED_Set_Pos(x, y);
+		OLED_Set_Pos(x, row);
 		for (i = 0; i < 8; i++)
 		{
 			if (colorTurn)
@@ -200,7 +200,7 @@ void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t chr, uint8_t charSize, uint8_t 
 			else
 				OLED_WR_DATA(F8X16[c * 16 + i]);
 		}
-		OLED_Set_Pos(x, y + 1);
+		OLED_Set_Pos(x, row + 1);
 		for (i = 0; i < 8; i++)
 		{
 			if (colorTurn)
@@ -211,7 +211,7 @@ void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t chr, uint8_t charSize, uint8_t 
 	}
 	else
 	{
-		OLED_Set_Pos(x, y);
+		OLED_Set_Pos(x, row);
 		for (i = 0; i < 6; i++)
 		{
 			if (colorTurn)
@@ -223,21 +223,21 @@ void OLED_ShowChar(uint8_t x, uint8_t y, uint8_t chr, uint8_t charSize, uint8_t 
 }
 
 /**
- * @function: void OLED_ShowString(uint8_t x, uint8_t y, uint8_t *chr, uint8_tcharSize, uint8_t colorTurn)
+ * @function: void OLED_ShowString(uint8_t x, uint8_t row, uint8_t *chr, uint8_tcharSize, uint8_t colorTurn)
  * @description: 在OLED12864特定位置开始显示字符串
  * @param {uint8_t} x待显示字符串的开始横坐标 x:0-127
- * @param {uint8_t} y待显示字符串的开始纵坐标 y:0-7，若选择字体大小为16，则两行数字之间需要间隔2，若选择字体大小为12，间隔1
+ * @param {uint8_t} y待显示字符串的开始纵坐标 row:0-7，若选择字体大小为16，则两行数字之间需要间隔2，若选择字体大小为12，间隔1
  * @param {uint8_t*} chr待显示的字符串
  * @param {uint8_t} charSize待显示字符串的字体大小,选择字体 16/12，16为8X16，12为6x8
  * @param {uint8_t} colorTurn是否反相显示(1反相、0不反相)
  * @return {*}
  */
-void OLED_ShowString(uint8_t x, uint8_t y, char *chr, uint8_t charSize, uint8_t colorTurn)
+void OLED_ShowString(uint8_t x, uint8_t row, char *chr, uint8_t charSize, uint8_t colorTurn)
 {
 	uint8_t j = 0;
 	while (chr[j] != '\0')
 	{
-		OLED_ShowChar(x, y, chr[j], charSize, colorTurn);
+		OLED_ShowChar(x, row, chr[j], charSize, colorTurn);
 		if (charSize == 12) // 6X8的字体列加6，显示下一个字符
 			x += 6;
 		else // 8X16的字体列加8，显示下一个字符
@@ -246,12 +246,12 @@ void OLED_ShowString(uint8_t x, uint8_t y, char *chr, uint8_t charSize, uint8_t 
 		if (x > 122 && charSize == 12) // TextSize6x8如果一行不够显示了，从下一行继续显示
 		{
 			x = 0;
-			y++;
+			row++;
 		}
 		if (x > 120 && charSize == 16) // TextSize8x16如果一行不够显示了，从下一行继续显示
 		{
 			x = 0;
-			y += 2;
+			row += 2;
 		}
 		j++;
 	}
@@ -273,7 +273,7 @@ void OLED_ShowString(uint8_t x, uint8_t y, char *chr, uint8_t charSize, uint8_t 
   * @note           如果字符串长度大于一行，额外的字符会换行
   * @retval         none
   */
-void OLED_printf(uint8_t x, uint8_t y, uint8_t charSize, uint8_t colorTurn, const char *fmt, ...)
+void OLED_printf(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colorTurn, const char *fmt, ...)
 {
     char STRING_BUF[256] = {0};
     va_list ap;
@@ -282,21 +282,26 @@ void OLED_printf(uint8_t x, uint8_t y, uint8_t charSize, uint8_t colorTurn, cons
     vsnprintf(STRING_BUF, sizeof(STRING_BUF), fmt, ap);
     va_end(ap);
 
-	OLED_ShowString(x, y, STRING_BUF, charSize, colorTurn);
+	uint8_t x;
+	if (charSize == 12)
+		x = col * 6;
+	else
+		x = col * 8;
+	OLED_ShowString(x, row, STRING_BUF, charSize, colorTurn);
 }
 
 /**
- * @function: void OLED_ShowUint(uint8_t x,uint8_t y,unsigned int num,uint8_t len,uint8_t size2, colorTurn)
+ * @function: void OLED_ShowUint(uint8_t x,uint8_t row,unsigned int num,uint8_t len,uint8_t size2, colorTurn)
  * @description: 显示数字
  * @param {uint8_t} x待显示的数字起始横坐标,x:0-126
- * @param {uint8_t} y待显示的数字起始纵坐标, y:0-7，若选择字体大小为16，则两行数字之间需要间隔2，若选择字体大小为12，间隔1
+ * @param {uint8_t} y待显示的数字起始纵坐标, row:0-7，若选择字体大小为16，则两行数字之间需要间隔2，若选择字体大小为12，间隔1
  * @param {unsigned int} num:输入的数据
  * @param {uint8_t } len:输入的数据位数
  * @param {uint8_t} size2:输入的数据大小，选择 16/12，16为8X16，12为6x8
  * @param {uint8_t} colorTurn是否反相显示(1反相、0不反相)
  * @return {*}
  */
-void OLED_ShowUint(uint8_t x, uint8_t y, unsigned int num, uint8_t len, uint8_t size2, uint8_t colorTurn)
+void OLED_ShowUint(uint8_t x, uint8_t row, unsigned int num, uint8_t len, uint8_t size2, uint8_t colorTurn)
 {
 	uint8_t t, temp;
 	uint8_t enshow = 0;
@@ -307,21 +312,21 @@ void OLED_ShowUint(uint8_t x, uint8_t y, unsigned int num, uint8_t len, uint8_t 
 		{
 			if (temp == 0)
 			{
-				OLED_ShowChar(x + (size2 / 2) * t, y, ' ', size2, colorTurn);
+				OLED_ShowChar(x + (size2 / 2) * t, row, ' ', size2, colorTurn);
 				continue;
 			}
 			else
 				enshow = 1;
 		}
-		OLED_ShowChar(x + (size2 / 2) * t, y, temp + '0', size2, colorTurn);
+		OLED_ShowChar(x + (size2 / 2) * t, row, temp + '0', size2, colorTurn);
 	}
 }
 
 /**
- * @function: void OLED_ShowFloat(uint8_t x,uint8_t y,float num,uint8_t z_len,uint8_t f_len,uint8_t size2, uint8_t colorTurn)
+ * @function: void OLED_ShowFloat(uint8_t x,uint8_t row,float num,uint8_t z_len,uint8_t f_len,uint8_t size2, uint8_t colorTurn)
  * @description: 显示正负浮点数
  * @param {uint8_t} x待显示的数字起始横坐标,x:0-126
- * @param {uint8_t} y待显示的数字起始纵坐标, y:0-7，若选择字体大小为16，则两行数字之间需要间隔2，若选择字体大小为12，间隔1
+ * @param {uint8_t} y待显示的数字起始纵坐标, row:0-7，若选择字体大小为16，则两行数字之间需要间隔2，若选择字体大小为12，间隔1
  * @param {float} num:输入的浮点型数据
  * @param {uint8_t } z_len:整数部分的位数
  * @param {uint8_t } f_len: 小数部分的位数
@@ -329,7 +334,7 @@ void OLED_ShowUint(uint8_t x, uint8_t y, unsigned int num, uint8_t len, uint8_t 
  * @param {uint8_t} colorTurn是否反相显示(1反相、0不反相)
  * @return {*}
  */
-void OLED_ShowFloat(uint8_t x, uint8_t y, float num, uint8_t z_len, uint8_t f_len, uint8_t size2, uint8_t colorTurn)
+void OLED_ShowFloat(uint8_t x, uint8_t row, float num, uint8_t z_len, uint8_t f_len, uint8_t size2, uint8_t colorTurn)
 {
 	uint8_t t, temp, i = 0; // i为负数标志位
 	uint8_t enshow;
@@ -349,44 +354,44 @@ void OLED_ShowFloat(uint8_t x, uint8_t y, float num, uint8_t z_len, uint8_t f_le
 		{
 			if (temp == 0)
 			{
-				OLED_ShowChar(x + (size2 / 2) * t, y, ' ', size2, colorTurn);
+				OLED_ShowChar(x + (size2 / 2) * t, row, ' ', size2, colorTurn);
 				continue;
 			}
 			else
 				enshow = 1;
 		}
-		OLED_ShowChar(x + (size2 / 2) * t, y, temp + '0', size2, colorTurn);
+		OLED_ShowChar(x + (size2 / 2) * t, row, temp + '0', size2, colorTurn);
 	}
 	// 小数点
-	OLED_ShowChar(x + (size2 / 2) * (z_len), y, '.', size2, colorTurn);
+	OLED_ShowChar(x + (size2 / 2) * (z_len), row, '.', size2, colorTurn);
 
 	f_temp = (int)((num - z_temp) * (oled_pow(10, f_len)));
 	// 小数部分
 	for (t = 0; t < f_len; t++)
 	{
 		temp = (f_temp / oled_pow(10, f_len - t - 1)) % 10;
-		OLED_ShowChar(x + (size2 / 2) * (t + z_len) + 5, y, temp + '0', size2, colorTurn);
+		OLED_ShowChar(x + (size2 / 2) * (t + z_len) + 5, row, temp + '0', size2, colorTurn);
 	}
 	if (i == 1) // 如果为负，就将最前的一位赋值‘-’
 	{
-		OLED_ShowChar(x, y, '-', size2, colorTurn);
+		OLED_ShowChar(x, row, '-', size2, colorTurn);
 		i = 0;
 	}
 }
 
 /**
- * @function: void OLED_ShowChinese(uint8_t x,uint8_t y,uint8_t no, uint8_t colorTurn)
+ * @function: void OLED_ShowChinese(uint8_t x,uint8_t row,uint8_t no, uint8_t colorTurn)
  * @description: 在OLED特定位置开始显示16X16汉字
  * @param {uint8_t} x待显示的汉字起始横坐标x: 0-112，两列汉字之间需要间隔16
- * @param {uint8_t} y待显示的汉字起始纵坐标 y: 0-6 , 两行汉字之间需要间隔2
+ * @param {uint8_t} y待显示的汉字起始纵坐标 row: 0-6 , 两行汉字之间需要间隔2
  * @param {uint8_t} no待显示的汉字编号
  * @param {uint8_t} colorTurn是否反相显示(1反相、0不反相)
  * @return {*}
  */
-void OLED_ShowChinese(uint8_t x, uint8_t y, uint8_t no, uint8_t colorTurn)
+void OLED_ShowChinese(uint8_t x, uint8_t row, uint8_t no, uint8_t colorTurn)
 {
 	uint8_t t = 0;
-	OLED_Set_Pos(x, y);
+	OLED_Set_Pos(x, row);
 	for (t = 0; t < 16; t++)
 	{
 		if (colorTurn)
@@ -395,7 +400,7 @@ void OLED_ShowChinese(uint8_t x, uint8_t y, uint8_t no, uint8_t colorTurn)
 			OLED_WR_DATA(Hzk[2 * no][t]); // 显示汉字的上半部分
 	}
 
-	OLED_Set_Pos(x, y + 1);
+	OLED_Set_Pos(x, row + 1);
 	for (t = 0; t < 16; t++)
 	{
 		if (colorTurn)
@@ -419,15 +424,15 @@ void OLED_ShowChinese(uint8_t x, uint8_t y, uint8_t no, uint8_t colorTurn)
 void OLED_DrawBMP(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1, uint8_t *BMP, uint8_t colorTurn)
 {
 	uint32_t j = 0;
-	uint8_t x = 0, y = 0;
+	uint8_t x = 0, row = 0;
 
 	if (y1 % 8 == 0)
-		y = y1 / 8;
+		row = y1 / 8;
 	else
-		y = y1 / 8 + 1;
-	for (y = y0; y < y1; y++)
+		row = y1 / 8 + 1;
+	for (row = y0; row < y1; row++)
 	{
-		OLED_Set_Pos(x0, y);
+		OLED_Set_Pos(x0, row);
 		for (x = x0; x < x1; x++)
 		{
 			if (colorTurn)

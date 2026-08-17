@@ -5,6 +5,12 @@
 #define DIR_CW 0  /* 接口定义：0 = CW */
 #define DIR_CCW 1 /* 非 0 = CCW */
 
+const char *state_str[CONTROLLER_STATE_COUNT] =
+    {
+        [CONTROLLER_IDLE] = "IDLE",
+        [CONTROLLER_ZERO_RUNNING] = "ZERO_RUNNING",
+        [CONTROLLER_ZERO_DONE] = "ZERO_DONE"};
+
 // void motor_init()
 // {
 //     Emm_V5_Set_QPos_Params(MOTOR_ADDR, 1, 100, 2, false); // 速度为1，加速度100，相对当前位置运动
@@ -57,7 +63,7 @@ void Guideway_FeedAngle(float angle)
  */
 static uint32_t zg_move(float delta_deg)
 {
-    const int ZG_MIN_PULSE = 3; /* 小于该脉冲数不发命令，避免无意义抖动 */
+    const int ZG_MIN_PULSE = 2; /* 小于该脉冲数不发命令，避免无意义抖动 */
     const int ZERO_SPD_RPM = 10;
     const int ZERO_ACC = 0;
 
@@ -88,7 +94,7 @@ void ZeroGuideway_Start(void)
     /* PID 参数：输出单位 = 导轨度数，误差单位 = 导轨度数。
     Kp = 1.0 相当于"一拍走完全部误差"，对有延迟的系统必然振荡，
     所以取 0.3~0.5，即每拍只吃掉一部分误差，靠多拍逼近 */
-    const float ZG_KP = 0.15f;
+    const float ZG_KP = 0.2f;
     const float ZG_KI = 0.0f;
     const float ZG_KD = 0.03f;
     const float ZG_INT_MAX = 5.0f; /* 积分限幅 */
@@ -108,7 +114,7 @@ void ZeroGuideway_Start(void)
     s_t_last = s_t_start;
     s_stable_cnt = 0;
     // s_last_out = 0.0f;
-    s_state = CONTROLLER_RUNNING;
+    s_state = CONTROLLER_ZERO_RUNNING;
 }
 
 void ZeroGuideway_Abort(void)
@@ -124,12 +130,11 @@ Controller_State_t ZeroGuideway_Poll(void)
 {
     const int ZG_CTRL_PERIOD_MS = 250; /* 控制周期ms，需 > 传感器延迟 + 运动时间 */
     const float ZG_STABLE_CNT = 4;     /* 连续 N 拍在死区内才认为回零完成 */
-    const int ZG_TIMEOUT_MS = 30000;
 
     uint32_t now;
     float angle, out, dt;
 
-    if (s_state != CONTROLLER_RUNNING)
+    if (s_state != CONTROLLER_ZERO_RUNNING)
         return s_state;
 
     now = HAL_GetTick();
@@ -149,7 +154,7 @@ Controller_State_t ZeroGuideway_Poll(void)
     {
         if (++s_stable_cnt >= ZG_STABLE_CNT)
         {
-            s_state = ZERO_DONE;
+            s_state = CONTROLLER_ZERO_DONE;
             return s_state;
         }
     }
@@ -163,15 +168,14 @@ Controller_State_t ZeroGuideway_Poll(void)
     // s_last_out = out;
     zg_move(out);
 
-    /* ---- 超时保护 ---- */
-    if ((now - s_t_start) > ZG_TIMEOUT_MS)
-    {
-        s_state = ZERO_ERR_TIMEOUT;
-    }
-
     return s_state;
 }
 
 Controller_State_t Controller_GetState(void) { return s_state; }
+void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colorTurn)
+{
+    OLED_printf(col, row, charSize, colorTurn, state_str[Controller_GetState()]);
+}
+
 float Guideway_GetAngle(void) { return s_angle_avg; }
 
