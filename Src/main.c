@@ -201,7 +201,7 @@ static void task_rotary_encoder(void)
   if (rotary_encoder.modified_flag)
   {
     rotary_encoder.modified_flag = 0;
-    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f;
+    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f + 5.0f;
     OLED_printf(12, 0, 12, 0, "rot: %-4g", rotary_encoder.ball_target);
   }
 }
@@ -223,12 +223,12 @@ static void task_read_mpu(void)
 
 static void task_display_uart(void)
 {
-  OLED_Clear(1, 2);
+  // OLED_Clear(1, 2);
   // OLED_printf(0, 1, 12, 0, "ac_yz %.3f %.3f", MPU6050_gw.Ay, MPU6050_gw.Az);
   // OLED_printf(0, 2, 12, 0, "gy %.2f %.2f %.2f", MPU6050_gw.Gx, MPU6050_gw.Gy, MPU6050_gw.Gz);
   // OLED_printf(0, 3, 12, 0, "temp %.2f", MPU6050_gw.Temperature);
-  OLED_printf(0, 2, 12, 0, "euler_x %.2f", MPU6050_gw.KalmanAngleX);
-  OLED_printf(0, 3, 12, 0, "euler_x_f %.2f", Guideway_GetAngle());
+  OLED_printf(0, 2, 12, 0, "theta %.2f   ", MPU6050_gw.KalmanAngleX);
+  // OLED_printf(0, 3, 12, 0, "euler_x_f %.2f", Guideway_GetAngle());
   // 串口发送
   // if (huart1.gState == HAL_UART_STATE_READY)
   // UART_DMA_printf(&huart1, "ac %f %f %f, gy %f %f %f, tmp %f, euler %f %f\n", MPU6050_gw.Ax, MPU6050_gw.Ay, MPU6050_gw.Az,
@@ -274,7 +274,12 @@ static void task_get_lut(void) {
 
 static void task_ball_stab(void)
 {
-  BallStablization_Poll(0, 10.0);
+  if (BallStablization_Poll(0, 15.0) == CONTROLLER_IDLE)
+  {
+    Sched_SetEnable(TASK_BALL_STAB, 0);
+    OLED_Clear(5, 5);
+    Show_State_On_OLED(0, 5, 12, 1);
+  }
 }
 
 /* ---------- 任务表 ---------- */
@@ -282,7 +287,7 @@ static Task_t task_list[TASK_COUNT] = {
   [TASK_LASER] =          {task_laser,          0,      1, 0},
   [TASK_ROTARY_ENCODER] = {task_rotary_encoder, 0,      1, 0},
   [TASK_READ_MPU] =       {task_read_mpu,       10,     1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
-  [TASK_ZERO_GUIDEWAY] =  {task_zero_guideway,  50,     0, 0},
+  [TASK_ZERO_GUIDEWAY] =  {task_zero_guideway,  250,    0, 0}, // 控制周期ms，需 > 传感器延迟 + 运动时间
   [TASK_GET_LUT] =        {task_get_lut,        3000,   0, 0},
   [TASK_BALL_STAB] =      {task_ball_stab,      20,     0, 0},
   [TASK_DISPLAY_UART] =   {task_display_uart,   200,    1, 0},
@@ -346,8 +351,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   // 接收不定长数据，LASER_BUF_SIZE为最大长度. 同样必须打开uart1全局中断
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
-	
-	OLED_printf(12, 0, 12, 0, "rot: 0");
+
+  rotary_encoder.modified_flag = 1; // 触发一次旋转编码器显示
 
   Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
   // ZeroGuideway_Start();

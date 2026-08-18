@@ -17,14 +17,14 @@ const char *controller_state_str[CONTROLLER_STATE_COUNT] =
     [CONTROLLER_BALL_STABLIZATION] = "STABLIZING"
 };
 
-static inline double fsign(double x)
-{
-    if (x > 0.0)
-        return 1.0;
-    if (x < 0.0)
-        return -1.0;
-    return 0.0;
-}
+// static inline double fsign(double x)
+// {
+//     if (x > 0.0)
+//         return 1.0;
+//     if (x < 0.0)
+//         return -1.0;
+//     return 0.0;
+// }
 
 static inline double fclamp(double val, double minVal, double maxVal)
 {
@@ -34,15 +34,14 @@ static inline double fclamp(double val, double minVal, double maxVal)
 /* ====================== 内部状态 ====================== */
 static Controller_State_t s_state = CONTROLLER_IDLE;
 
-#define FEED_ANGLE_AVG_WIN 4
-static float s_fa_buf[FEED_ANGLE_AVG_WIN];
-static uint8_t s_fa_buf_idx = 0;
-static uint8_t s_fa_buf_cnt = 0;
 static float s_angle_avg = 0.0f;
-// static float s_last_out = 0.0f;
-
 void Guideway_FeedAngle(float angle)
 {
+    const uint8_t FEED_ANGLE_AVG_WIN = 50; // 超大窗抑制低频漂移
+    static float s_fa_buf[FEED_ANGLE_AVG_WIN];
+    static uint8_t s_fa_buf_idx = 0;
+    static uint8_t s_fa_buf_cnt = 0;
+
     uint8_t i;
     float sum = 0.0f;
 
@@ -56,40 +55,17 @@ void Guideway_FeedAngle(float angle)
     s_angle_avg = sum / (float)s_fa_buf_cnt;
 }
 
-#define POS_AVG_WIN 4
-static float s_fpos_buf[POS_AVG_WIN] = {0};
-static uint8_t s_fpos_buf_idx = 0;
-static uint8_t s_fpos_buf_cnt = 0;
-
-typedef struct {
-    float last_pos_avg;
-    float pos_avg;
-    // float velocity;
-    uint32_t t_start;
-    uint32_t t_last;
-} BallController;
-
-static BallController s_ballController;
-
+static float s_ball_pos = 0.0f;
 void Guideway_FeedBallPos(float pos) // 单位为mm
 {
-    uint8_t i;
-    float sum = 0.0f;
+    static float s_last_ball_pos = 0.0f;
+    s_last_ball_pos = s_ball_pos;
 
     if (pos > 300.0) // 处理坏帧，因为太接近测距仪会变成65535.0
     {
-        uint8_t last_idx = (POS_AVG_WIN + s_fpos_buf_idx - 1u) % POS_AVG_WIN;
-        pos = s_fpos_buf[last_idx];
+        pos = s_last_ball_pos;
     }
-
-    s_fpos_buf[s_fpos_buf_idx] = pos;
-    s_fpos_buf_idx = (uint8_t)((s_fpos_buf_idx + 1u) % POS_AVG_WIN);
-    if (s_fpos_buf_cnt < POS_AVG_WIN)
-        s_fpos_buf_cnt++;
-
-    for (i = 0; i < s_fpos_buf_cnt; i++)
-        sum += s_fpos_buf[i];
-    s_ballController.pos_avg = sum / (float)s_fpos_buf_cnt;
+    s_ball_pos = pos;
 }
 
 void Controller_Abort(void)
@@ -121,18 +97,7 @@ void Motor_Return_Origin(void)
  *   否则会因"看到的还是旧角度"而反复过冲振荡。
  ******************************************************************************
  */
-#define ZG_DEADBAND 0.15f /* 死区，略大于 ±0.1° 的静态抖动 */
-#define ZG_TARGET_ANGLE 0.0f /* 目标角度 */
-
-typedef struct {
-    PID_t pid;
-    uint32_t t_start;
-    uint32_t t_last; /* 上一次控制动作时刻 */
-    uint8_t stable_count;
-} ZeroGuidewayController;
-
-static ZeroGuidewayController s_zgController;
-
+static PID_t s_zg_pid;
 void ZeroGuideway_Start(void)
 {
     if (s_state != CONTROLLER_IDLE)
@@ -146,19 +111,18 @@ void ZeroGuideway_Start(void)
     const float ZG_INT_MAX = 5.0f; /* 积分限幅 */
     const float ZG_INT_SEP = 3.0f; /* |误差|>3° 时不积分，先靠 P 快速接近 */
     const float ZG_D_ALPHA = 0.3f; /* 微分低通，噪声大就再调小 */
-    
+    const float ZG_DEADBAND = 0.15f; /* 死区，略大于 ±0.1° 的静态抖动 */
+
     const float ZG_MAX_STEP_DEG = 2.0f; /* 单拍最大修正量（导轨度数），防止大步冲过头 */
+    const float ZG_TARGET_ANGLE = 0.0f; /* 目标角度 */
 
-    PID_Init(&s_zgController.pid, ZG_KP, ZG_KI, ZG_KD);
-    PID_SetTarget(&s_zgController.pid, ZG_TARGET_ANGLE);
-    PID_SetOutputLimit(&s_zgController.pid, -ZG_MAX_STEP_DEG, ZG_MAX_STEP_DEG);
-    PID_SetIntegralLimit(&s_zgController.pid, ZG_INT_MAX, ZG_INT_SEP);
-    PID_SetDeadband(&s_zgController.pid, ZG_DEADBAND);
-    PID_SetDFilter(&s_zgController.pid, ZG_D_ALPHA);
+    PID_Init(&s_zg_pid, ZG_KP, ZG_KI, ZG_KD);
+    PID_SetTarget(&s_zg_pid, ZG_TARGET_ANGLE);
+    PID_SetOutputLimit(&s_zg_pid, -ZG_MAX_STEP_DEG, ZG_MAX_STEP_DEG);
+    PID_SetIntegralLimit(&s_zg_pid, ZG_INT_MAX, ZG_INT_SEP);
+    PID_SetDeadband(&s_zg_pid, ZG_DEADBAND);
+    PID_SetDFilter(&s_zg_pid, ZG_D_ALPHA);
 
-    s_zgController.t_start = HAL_GetTick();
-    s_zgController.t_last = s_zgController.t_start;
-    s_zgController.stable_count = 0;
     // s_last_out = 0.0f;
     s_state = CONTROLLER_ZEROING;
 }
@@ -169,12 +133,22 @@ void ZeroGuideway_Start(void)
  */
 Controller_State_t ZeroGuideway_Poll(void)
 {
-    const int ZG_CTRL_PERIOD_MS = 250; /* 控制周期ms，需 > 传感器延迟 + 运动时间 */
     const float ZG_STABLE_CNT = 4;     /* 连续 N 拍在死区内才认为回零完成 */
     const int ZG_MIN_PULSE = 2;        /* 小于该脉冲数不发命令，避免无意义抖动 */
     const int ZERO_SPD_RPM = 15;
     const int ZERO_ACC = 0;
-    
+
+    static uint32_t s_zg_t_last; // 上次动作时刻
+    static uint8_t s_init_flag = 0;
+
+    if (!s_init_flag)
+    {
+        s_zg_t_last = HAL_GetTick();
+        s_init_flag = 1;
+    }
+
+    static uint8_t s_zg_stable_count = 0;
+
     if (s_state != CONTROLLER_ZEROING)
         return s_state;
 
@@ -183,20 +157,16 @@ Controller_State_t ZeroGuideway_Poll(void)
 
     now = HAL_GetTick();
 
-    /* 节流：未到控制周期就直接返回，让出 CPU */
-    if ((now - s_zgController.t_last) < ZG_CTRL_PERIOD_MS)
-        return s_state;
-
-    dt = (float)(now - s_zgController.t_last) / 1000.0f;
-    s_zgController.t_last = now;
+    dt = (float)(now - s_zg_t_last) / 1000.0f;
+    s_zg_t_last = now;
 
     /* ---- 采样（已由 FeedAngle 滤波） ---- */
     angle = s_angle_avg;
 
     /* ---- 收敛判定：连续多拍落在死区内 ---- */
-    if (fabsf(ZG_TARGET_ANGLE - angle) < ZG_DEADBAND)
+    if (fabsf(s_zg_pid.target - angle) < s_zg_pid.deadband)
     {
-        if (++s_zgController.stable_count >= ZG_STABLE_CNT)
+        if (++s_zg_stable_count >= ZG_STABLE_CNT)
         {
             s_state = CONTROLLER_IDLE;
             Emm_V5_Origin_Set_O(MOTOR_ADDR, true); // 设置单圈回零零点位置，写入flash
@@ -205,17 +175,17 @@ Controller_State_t ZeroGuideway_Poll(void)
     }
     else
     {
-        s_zgController.stable_count = 0;
+        s_zg_stable_count = 0;
     }
 
     /* ---- PID 运算并执行 ---- */
-    out_deg = PID_Calc(&s_zgController.pid, angle, dt); // 单位为deg
+    out_deg = PID_Calc(&s_zg_pid, angle, dt); // 单位为deg
     // s_last_out = out_deg;
 
     uint32_t pulse;
     uint8_t dir;
-    pulse = (uint32_t)(fabsf(out_deg) * 38.3f + 0.5f); // +0.5是为了四舍五入
-    // 回归可得每一度大约需要38.326个脉冲
+    pulse = (uint32_t)(fabsf(out_deg) * 36.48f + 0.5f); // +0.5是为了四舍五入
+    // 回归可得每一度大约需要36.48个脉冲（线性段）
 
     if (pulse >= ZG_MIN_PULSE)
     {
@@ -261,9 +231,9 @@ void Get_Guideway_LUT_Poll(int pulse)
 
 /* ***************************** 钢球控制系统 ************************************* */
 #define GUIDEWAY_ANGLE_LIMIT 15.0
-static int Calc_Pulse_By_Angle(double target_angle) // 这里的pulse表示顺时针旋转、向下倾斜为正
+static int Calc_Pulse_By_Angle(double target_angle) 
 {
-    const double OFFSET = 0.5867950943;
+    const double OFFSET = 5.867950943;
 
     target_angle = fclamp(target_angle, -GUIDEWAY_ANGLE_LIMIT, GUIDEWAY_ANGLE_LIMIT);
     double sqared = target_angle * target_angle;
@@ -272,60 +242,98 @@ static int Calc_Pulse_By_Angle(double target_angle) // 这里的pulse表示顺�
                     (1 - 0.1031174851 * target_angle + 0.002126693238 * sqared + 0.00002505123008 * cubed)) -
                    OFFSET;
     return (int)(pulse + 0.5); // 有正有负，必须和Absolute_Pos_CW_Positive配合使用
+    // 这里的pulse表示顺时针旋转、向下倾斜为正
+    // theta是活动端向下为负
 }
 
+static PID_t s_ball_pid;
 void BallStablization_Start(bool acc_comp)
 {
-    s_ballController.t_start = HAL_GetTick();
-    s_ballController.t_last = s_ballController.t_start;
-    s_ballController.last_pos_avg = s_ballController.pos_avg;
+    (void)acc_comp;
+
+    const float BS_KP = 0.065f;       /* 球每偏离1 mm，导轨倾角变化的deg */
+    const float BS_KI = 0.000f;       /* 误差每持续 1mm·1s，倾角累加的deg */
+    const float BS_KD = 0.060f;       /* 球每1mm/s，导轨倾角变化的deg */
+    const float BS_D_ALPHA = 0.25f;   /* 微分低通系数，越小越平滑，响应越慢 */
+    const float BS_I_MAX = 18.0f;     /* 积分限幅 */
+    const float BS_I_SEP = 20.0f;     /* |误差|>SEP 时不积分，先靠 P 快速接近 */
+                                      // 补充：|误差|超过SEP时，积分项设置为0
+    const float BS_POS_DB = 5.0f;     // 位置死区，单位为mm
+
+    PID_Init(&s_ball_pid, BS_KP, BS_KI, BS_KD);
+    PID_SetOutputLimit(&s_ball_pid, -GUIDEWAY_ANGLE_LIMIT, GUIDEWAY_ANGLE_LIMIT);
+    PID_SetIntegralLimit(&s_ball_pid, BS_I_MAX, BS_I_SEP);
+    PID_SetDFilter(&s_ball_pid, BS_D_ALPHA);
+    PID_SetDeadband(&s_ball_pid, BS_POS_DB); // 这个是比例/积分作用的死区，不影响微分
+
+    // s_bs_theta_last = 0.0f;
+    // s_bs_pulse_valid = 0;
     s_state = CONTROLLER_BALL_STABLIZATION;
 }
 
-void BallStablization_Poll(bool acc_comp, double ball_target_cm)
+/* ************************* debug pid ***************************** */
+// 必须是全局变量才能调试
+float debug_kp = 0.03f;
+float debug_ki = 0.05f;
+float debug_kd = 0.025f;
+float debug_d_alpha = 1.0f;
+uint32_t debug_spd = 40;
+uint8_t debug_acc = 150;
+Controller_State_t BallStablization_Poll(bool acc_comp, double ball_target_cm)
 {
-    const double LQR_QP = 6.0; // 位置误差 e 的代价权重
-    const double LQR_QV = 3.0; // 速度 v 的代价权重
-    const double LQR_R = 0.3;
-    const double k1 = sqrt(LQR_QP / LQR_R);
-    const double k2 = sqrt(LQR_QV / LQR_R + 2.0 * sqrt(LQR_QP / LQR_R));
+    const uint8_t BS_STABLE_CNT = 100; // 连续100拍(2s)落在位置死区内，才认为稳定
 
-    const double V_STATIC_EPS = 0.003; // 判定 "接近静止" 的速度阈值(m / s)
-    const double G = 9.8;              // 重力加速度
-    const double MU = 0.01;            // 动摩擦因数
+    s_ball_pid.Kp = debug_kp;
+    s_ball_pid.Ki = debug_ki;
+    s_ball_pid.Kd = debug_kd;
+    s_ball_pid.d_alpha = debug_d_alpha;
+    /* ************** 调试结束 *************** */
+
+    const float BS_PULSE_DB = 3;     /* ★ 死区放输出端：变化不够大就不重发指令 */
+    const float BS_CTRL_DT = 0.020f; /* 调度器给的控制周期s */
+
+    float pos, theta;
+    int pulse;
+    static int s_bs_pulse_last = 0;
+    static uint8_t s_ball_stable_count = 0;
+
+    (void)acc_comp;
     if (s_state != CONTROLLER_BALL_STABLIZATION)
-        return;
+        return s_state;
 
-    uint32_t now = HAL_GetTick();
-    double control_intv_s = (double)(now - s_ballController.t_last) * 0.001;
-    s_ballController.t_last = now;
+    pos = s_ball_pos;
+    PID_SetTarget(&s_ball_pid, (float)ball_target_cm * 10.0f); /* cm -> mm */
 
-    double v = (s_ballController.pos_avg - s_ballController.last_pos_avg) / control_intv_s * 0.001; // 单位为m/s
-    double e = s_ballController.pos_avg * 0.001 - ball_target_cm * 0.01;
-    s_ballController.last_pos_avg = s_ballController.pos_avg;
-
-    // LQR 最优反馈：期望加速度(双积分器闭式解 a = -K1 * e - K2 * v)
-    double a_des = -k1 * e - k2 * v;
-    // 静止/准静止时，用 "期望加速度方向" 代替 sign(v) 来判断摩擦方向 (因为速度为零时 sign(v)
-    // 无定义，但摩擦仍会阻碍即将发生的运动趋势)
-    double sgn;
-    if (fabs(v) > V_STATIC_EPS)
-        sgn = fsign(v);
-    else
-        sgn = fsign(a_des);
-
-    // 反馈线性化：反解隐式方程 g * sinθ - mu * g *cosθ * sgn = a_des
-    // 用不动点迭代求解(因 cosθ 依赖 θ 本身)
-    double theta = asin(fclamp(a_des / G, -1.0, 1.0));
-    double rhs;
-    for (int _ = 0; _ < 6; _++)
+    /* ---- 收敛判定：连续多拍落在死区内 ---- */
+    if (fabsf(s_ball_pid.target - pos) < s_ball_pid.deadband)
     {
-        rhs = (a_des + MU * G * cosf(theta) * sgn) / G;
-        rhs = fclamp(rhs, -1.0, 1.0);
-        theta = asin(rhs);
+        if (++s_ball_stable_count >= BS_STABLE_CNT)
+        {
+            s_state = CONTROLLER_IDLE;
+            Absolute_Pos_CW_Positive(10, 10, 0); // 缓慢回零
+            return s_state;
+        }
+    }
+    else
+    {
+        s_ball_stable_count = 0;
     }
 
-    theta = RAD_TO_DEG * theta;
-    int pulse = Calc_Pulse_By_Angle(theta); // theta是向下为正的
-    Absolute_Pos_CW_Positive(100, 20, pulse);
+    /* 输出直接就是导轨倾角(度)：库内 err = target - measure，
+       d_filt = -v，展开即 -(Kp*e + Ki*∫e + Kd*v) */
+    theta = PID_Calc(&s_ball_pid, pos, BS_CTRL_DT);
+
+    if (ABS(pos - ball_target_cm * 10.0f) > s_ball_pid.int_sep)
+        s_ball_pid.integral = 0.0f; // 这个逻辑是原pid库没有的，这里手动补上
+
+    /* 输出死区：避免驱动器反复重规划梯形曲线 */
+    pulse = Calc_Pulse_By_Angle((double)theta);
+    if (ABS(pulse - s_bs_pulse_last) >= BS_PULSE_DB)
+    {
+        Absolute_Pos_CW_Positive(debug_spd, debug_acc, pulse);
+        s_bs_pulse_last = pulse;
+    }
+
+    OLED_printf(0, 1, 12, 0, "%f   ", s_ball_pid.integral);
+    return s_state;
 }

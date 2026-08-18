@@ -48,6 +48,6 @@ void Get_Guideway_LUT_Poll(int pulse);
 
 /* ************************ 平衡球 ********************** */
 void BallStablization_Start(bool acc_comp);
-void BallStablization_Poll(bool acc_comp, double ball_target_cm);
+Controller_State_t BallStablization_Poll(bool acc_comp, double ball_target_cm);
 
 #endif
