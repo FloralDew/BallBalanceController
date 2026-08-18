@@ -23,8 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include <string.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <stdarg.h>
+#include <stdlib.h> // atof
 #include <math.h>
 
 #include "stm32f1xx_it.h"
@@ -189,6 +189,7 @@ static void task_laser(void)
       if (pos != NULL)
       {
         // OLED_Clear(0, 0);
+        Guideway_FeedBallPos((float)atof(pos));
         OLED_printf(0, 0, 12, 0, "pos: %-7s", pos);
       }
     }
@@ -271,6 +272,11 @@ static void task_get_lut(void) {
   pulse += 5; // 逐渐往下运动
 }
 
+static void task_ball_stab(void)
+{
+  BallStablization_Poll(0, 10.0);
+}
+
 /* ---------- 任务表 ---------- */
 static Task_t task_list[TASK_COUNT] = {
   [TASK_LASER] =          {task_laser,          0,      1, 0},
@@ -278,6 +284,7 @@ static Task_t task_list[TASK_COUNT] = {
   [TASK_READ_MPU] =       {task_read_mpu,       10,     1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
   [TASK_ZERO_GUIDEWAY] =  {task_zero_guideway,  50,     0, 0},
   [TASK_GET_LUT] =        {task_get_lut,        3000,   0, 0},
+  [TASK_BALL_STAB] =      {task_ball_stab,      20,     0, 0},
   [TASK_DISPLAY_UART] =   {task_display_uart,   200,    1, 0},
   [TASK_ADC] =            {task_adc,            1000,   1, 0},
 };
@@ -346,6 +353,9 @@ int main(void)
   // ZeroGuideway_Start();
   // Sched_SetEnable(TASK_ZERO_GUIDEWAY, 1);
   Motor_Return_Origin(); // 电机回零，实测会飘0.2度以内
+  HAL_Delay(1000);
+  BallStablization_Start(0);
+  Sched_SetEnable(TASK_BALL_STAB, 1);
 
   Show_State_On_OLED(0, 5, 12, 1);
   while (1)

@@ -34,6 +34,7 @@ extern "C" {
 #include "MPU6050_I2C.h"
 #include "OLED_SPI.h"
 #include "scheduler.h"
+#include <stdbool.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -45,6 +46,7 @@ typedef enum
   TASK_READ_MPU,
   TASK_ZERO_GUIDEWAY,
   TASK_GET_LUT,
+  TASK_BALL_STAB,
   TASK_DISPLAY_UART,
   TASK_ADC,
   TASK_COUNT /* 自动等于任务个数 */

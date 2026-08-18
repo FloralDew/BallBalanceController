@@ -9,9 +9,10 @@ typedef enum
 {
     CONTROLLER_IDLE = 0, /* 未启动 / 已停止 */
     // ZG_SETTLING,    /* 已发出运动指令，等待电机走完 + 传感器延迟 */
-    CONTROLLER_ZEROING,     /* 正在回零 */
+    CONTROLLER_ZEROING, /* 正在回零 */
     // CONTROLLER_ZERO_DONE,        /* 回零成功 */
     CONTROLLER_GET_LUT,
+    CONTROLLER_BALL_STABLIZATION,
     CONTROLLER_STATE_COUNT
 } Controller_State_t;
 
@@ -24,13 +25,14 @@ void Controller_Abort(void);
  *         模块内部做滑动平均，替代原来阻塞式的多次采样
  */
 void Guideway_FeedAngle(float angle);
+void Guideway_FeedBallPos(float pos);
 Controller_State_t Controller_GetState(void);
 void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colorTurn);
 void Motor_Return_Origin(void);
 /** 便于调试：当前滤波后角度 **/
 float Guideway_GetAngle(void);
 
-/**************** 自动回零 ************** */
+/**************** 零位校准 ************** */
 /** 启动一次回零，内部会复位 PID 与所有状态 */
 void ZeroGuideway_Start(void);
 /**
@@ -44,6 +46,8 @@ Controller_State_t ZeroGuideway_Poll(void);
 void Get_Guideway_LUT_Start(void);
 void Get_Guideway_LUT_Poll(int pulse);
 
-
+/* ************************ 平衡球 ********************** */
+void BallStablization_Start(bool acc_comp);
+void BallStablization_Poll(bool acc_comp, double ball_target_cm);
 
 #endif
