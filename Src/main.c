@@ -29,6 +29,8 @@
 
 #include "stm32f1xx_it.h"
 #include "controller.h"
+#include "button.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,6 +51,8 @@ typedef struct {
   float ball_target;
   bool modified_flag;
 } Rotary_encoder;
+
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -94,7 +98,8 @@ Rotary_encoder rotary_encoder = {
   .ball_target = 0.0f,
   .modified_flag = 0
 };
-
+// 按钮
+BTN_HandleTypedef hkey;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -176,6 +181,11 @@ HAL_StatusTypeDef UART_DMA_printf(UART_HandleTypeDef *huart, const char *fmt, ..
 
 
 /* ************************ 调度器任务 *********************** */
+static void task_get_button(void)
+{
+  
+}
+
 static void task_laser(void)
 {
   if (laser.frameReady)
@@ -274,7 +284,7 @@ static void task_get_lut(void) {
 
 static void task_ball_stab(void)
 {
-  if (BallStablization_Poll(0, 15.0) == CONTROLLER_IDLE)
+  if (BallStablization_Poll(0, 5.0) == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_BALL_STAB, 0);
     OLED_Clear(5, 5);
@@ -560,7 +570,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 59;
+  htim3.Init.Period = 39;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
@@ -733,6 +743,12 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(OLED_SPI_RES_GPIO_Port, OLED_SPI_RES_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : OLED_SPI_DC_Pin */
   GPIO_InitStruct.Pin = OLED_SPI_DC_Pin;
