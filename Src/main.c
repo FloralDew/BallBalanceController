@@ -99,7 +99,7 @@ Rotary_encoder rotary_encoder = {
   .modified_flag = 0
 };
 // 按钮
-BTN_HandleTypedef hkey;
+BTN_HandleTypedef hbutton;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -183,7 +183,24 @@ HAL_StatusTypeDef UART_DMA_printf(UART_HandleTypeDef *huart, const char *fmt, ..
 /* ************************ 调度器任务 *********************** */
 static void task_get_button(void)
 {
-  
+  Button_Get(&hbutton);
+  BTN_StateTypedef btn_type = hbutton.btn_state;
+  hbutton.btn_state = BTN_RELEASE; // 及时复位
+  static int cnt[3] = {0, 0, 0};
+  switch (btn_type)
+  {
+    case BTN_PRESS:
+      OLED_printf(0, 4, 12, 0, "%d", ++cnt[0]);
+      break;
+    case BTN_LONGPRESS:
+      OLED_printf(5, 4, 12, 0, "%d", ++cnt[1]);
+      break;
+    case BTN_DOUBLEPRESS:
+      OLED_printf(10, 4, 12, 0, "%d", ++cnt[2]);
+      break;
+    default:
+      break;
+  }
 }
 
 static void task_laser(void)
@@ -302,6 +319,7 @@ static Task_t task_list[TASK_COUNT] = {
   [TASK_BALL_STAB] =      {task_ball_stab,      20,     0, 0},
   [TASK_DISPLAY_UART] =   {task_display_uart,   200,    1, 0},
   [TASK_ADC] =            {task_adc,            1000,   1, 0},
+  [TASK_GET_BUTTON] =     {task_get_button,     10,     1, 0},
 };
 /* USER CODE END 0 */
 
@@ -344,17 +362,20 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   // Initialization
+  // OLED初始化
   OLED_Init(0x8f);
   OLED_Clear(0, 7);
+  // 旋转编码器初始化
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_1);
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_2);
-
-  // OLED_ShowString(0, 0, "MPU Initializing...", 12, 0);
+  // MPU6050初始化
   while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
   OLED_printf(0, 0, 12, 0, "MPU Calibrating...");
   MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050_gw, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
   OLED_Clear(0, 7);
-  // OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1), 3, 16, 0);
+  // 按钮初始化
+  Button_Init(&hbutton, BTN_GPIO_Port, BTN_Pin);
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -744,11 +765,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(OLED_SPI_RES_GPIO_Port, OLED_SPI_RES_Pin, GPIO_PIN_SET);
 
-  /*Configure GPIO pin : PA1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  /*Configure GPIO pin : BTN_Pin */
+  GPIO_InitStruct.Pin = BTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(BTN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : OLED_SPI_DC_Pin */
   GPIO_InitStruct.Pin = OLED_SPI_DC_Pin;

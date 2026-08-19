@@ -24,5 +24,5 @@ typedef struct
     BTN_StateTypedef btn_state;
 } BTN_HandleTypedef;
 
-void button_init(BTN_HandleTypedef *hbutton, GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
-void button_get(BTN_HandleTypedef *hbutton);
+void Button_Init(BTN_HandleTypedef *hbutton, GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
+void Button_Get(BTN_HandleTypedef *hbutton);

@@ -49,6 +49,7 @@ typedef enum
   TASK_BALL_STAB,
   TASK_DISPLAY_UART,
   TASK_ADC,
+  TASK_GET_BUTTON,
   TASK_COUNT /* 自动等于任务个数 */
 } TaskId_t;
 /* USER CODE END ET */
@@ -76,6 +77,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define BTN_Pin GPIO_PIN_1
+#define BTN_GPIO_Port GPIOA
 #define OLED_SPI_DC_Pin GPIO_PIN_12
 #define OLED_SPI_DC_GPIO_Port GPIOB
 #define OLED_SPI_RES_Pin GPIO_PIN_14
