@@ -98,6 +98,7 @@ void Motor_Return_Origin(void)
  ******************************************************************************
  */
 static PID_t s_zg_pid;
+static uint8_t s_zg_stable_count = 0;
 void ZeroGuideway_Start(void)
 {
     if (s_state != CONTROLLER_IDLE)
@@ -111,7 +112,7 @@ void ZeroGuideway_Start(void)
     const float ZG_INT_MAX = 5.0f; /* 积分限幅 */
     const float ZG_INT_SEP = 3.0f; /* |误差|>3° 时不积分，先靠 P 快速接近 */
     const float ZG_D_ALPHA = 0.3f; /* 微分低通，噪声大就再调小 */
-    const float ZG_DEADBAND = 0.1f; /* 死区，略大于 ±0.1° 的静态抖动 */
+    const float ZG_DEADBAND = 0.03f; /* 死区，略大于静态抖动 */
 
     const float ZG_MAX_STEP_DEG = 2.0f; /* 单拍最大修正量（导轨度数），防止大步冲过头 */
     const float ZG_TARGET_ANGLE = 0.0f; /* 目标角度 */
@@ -124,6 +125,7 @@ void ZeroGuideway_Start(void)
     PID_SetDFilter(&s_zg_pid, ZG_D_ALPHA);
 
     // s_last_out = 0.0f;
+    s_zg_stable_count = 0;
     s_state = CONTROLLER_ZEROING;
 }
 
@@ -146,8 +148,6 @@ Controller_State_t ZeroGuideway_Poll(void)
         s_zg_t_last = HAL_GetTick();
         s_init_flag = 1;
     }
-
-    static uint8_t s_zg_stable_count = 0;
 
     if (s_state != CONTROLLER_ZEROING)
         return s_state;
@@ -254,6 +254,7 @@ static int Calc_Pulse_By_Angle(double target_angle)
 设定两个积分项，一个用于踢动球，一个用于消除稳态误差
 */
 static PID_t s_ball_pid, s_kick_pid; // kick是为了防止球一直不动
+static uint8_t s_ball_stable_count = 0;
 void BallStablization_Start(bool acc_comp, float ball_target_mm)
 {
     if (s_state != CONTROLLER_IDLE)
@@ -283,6 +284,7 @@ void BallStablization_Start(bool acc_comp, float ball_target_mm)
     PID_SetIntegralLimit(&s_kick_pid, BS_KICK_I_MAX, BS_KICK_I_SEP);
     // s_bs_theta_last = 0.0f;
     // s_bs_pulse_valid = 0;
+    s_ball_stable_count = 0;
     s_state = CONTROLLER_BALL_STABLIZATION;
 }
 
@@ -301,13 +303,12 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
     /* ************** 调试结束 *************** */
     
     const uint8_t BS_STABLE_CNT = 75; // 连续75拍落在位置死区内，才认为稳定
-    const int BS_PULSE_DB = 3;     /* ★ 死区放输出端：变化不够大就不重发指令 */
+    // const int BS_PULSE_DB = 3;     /* ★ 死区放输出端：变化不够大就不重发指令 */
     const float BS_CTRL_DT = 0.020f; /* 调度器给的控制周期s */
 
     float pos, theta;
     int pulse;
-    static int s_bs_pulse_last = 0;
-    static uint8_t s_ball_stable_count = 0;
+    // static int s_bs_pulse_last = 0;
 
     (void)acc_comp;
     if (s_state != CONTROLLER_BALL_STABLIZATION)
@@ -344,14 +345,30 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
 
     /* 输出死区：避免驱动器反复重规划梯形曲线 */
     pulse = Calc_Pulse_By_Angle((double)theta);
-    if (ABS(pulse - s_bs_pulse_last) >= BS_PULSE_DB)
-    {
-        Absolute_Pos_CW_Positive(70, (int)(230 - s_ball_stable_count * 2.1), pulse); // 越稳定越慢，防止归零后球自己跑走
-        s_bs_pulse_last = pulse;
-    }
+    // if (ABS(pulse - s_bs_pulse_last) >= BS_PULSE_DB)
+    // {
+    Absolute_Pos_CW_Positive((int)(70 - s_ball_stable_count * 0.15), 
+                            (int)(230 - s_ball_stable_count * 2.1), pulse); // 越稳定越慢，防止归零后球自己跑走
+    // s_bs_pulse_last = pulse;
+    // }
 
-    OLED_printf(0, 1, 12, 0, "%f   ", s_ball_pid.integral);
-    OLED_printf(12, 1, 12, 0, "%f   ", s_kick_pid.integral);
-    UART_DMA_printf(&huart1, "%f\n", s_ball_pid.d_filt);
+    // OLED_printf(0, 1, 12, 0, "%f   ", s_ball_pid.integral);
+    // OLED_printf(12, 1, 12, 0, "%f   ", s_kick_pid.integral);
+    // UART_DMA_printf(&huart1, "%f\n", s_ball_pid.d_filt);
     return s_state;
+}
+
+
+void BallAccComp_Start(void)
+{
+    // if (s_state != CONTROLLER_BALL_STABLIZATION)
+    //     return;
+
+}
+
+void BallAccComp_Poll(void)
+{
+    // if (s_state != CONTROLLER_BALL_STABLIZATION)
+    //     return;
+    
 }

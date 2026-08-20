@@ -49,7 +49,6 @@
 #define MPU_INTBP_CFG_REG 0x37 // 中断/旁路设置寄存器
 
 // Setup MPU6050
-#define MPU6050_ADDR 0xD0
 #define MPU6050_I2C_TIMEOUT 100
 
 // 使用六面法标定我手上的这块MPU6050，得到的偏移值
@@ -61,12 +60,23 @@ Z 轴朝上时测得平均 raw 值为 Z_up；Z 轴朝下时测得平均 raw 值�
 则：零偏 offset_Z = (Z_up + Z_down) / 2
 灵敏度对应的满量程 scale_Z = (Z_up - Z_down) / 2   // 这个值就相当于原代码里的 Accel_Z_corrector
 */
-#define X_ACC_OFFSET 8448.0
-#define Y_ACC_OFFSET -5301.0
-#define Z_ACC_OFFSET 1987.0
-#define X_ACC_SCALE 16384.0
-#define Y_ACC_SCALE 16384.0
-#define Z_ACC_SCALE 16585.0
+const float mpu_gw_correction[6] = {
+    8448.0,  // X_ACC_OFFSET_GW
+    -5301.0, // Y_ACC_OFFSET_GW
+    1987.0,  // Z_ACC_OFFSET_GW
+    16384.0, // X_ACC_SCALE_GW
+    16384.0, // Y_ACC_SCALE_GW
+    16585.0  // Z_ACC_SCALE_GW
+};
+
+const float mpu_chassis_correction[6] = {
+    -1078.0, // X_ACC_OFFSET_CHASSIS
+    -5012.0, // Y_ACC_OFFSET_CHASSIS
+    -189.0, // Z_ACC_OFFSET_CHASSIS
+    16384.0, // X_ACC_SCALE_CHASSIS
+    16384.0, // Y_ACC_SCALE_CHASSIS
+    16666.0  // Z_ACC_SCALE_CHASSIS
+};
 
 uint32_t timer;
 
@@ -82,46 +92,46 @@ Kalman_t KalmanY = {
     .R_measure = 0.03f,
 };
 
-uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx)
+uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx, uint8_t addr)
 {
     uint8_t check;
     uint8_t Data;
 
     // check device ID WHO_AM_I
 
-    HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDR, WHO_AM_I_REG, 1, &check, 1, MPU6050_I2C_TIMEOUT);
+    HAL_I2C_Mem_Read(I2Cx, addr, WHO_AM_I_REG, 1, &check, 1, MPU6050_I2C_TIMEOUT);
     // return check; // 112
     if (check == 112) // 0x68 will be returned by the sensor if everything goes well
     {
         // // 开启data ready中断
         // Data = 0x01;
-        // HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, MPU_INT_EN_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        // HAL_I2C_Mem_Write(I2Cx, addr, MPU_INT_EN_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
         // // data ready中断低电平触发
         // Data = 0xc0;
-        // HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, MPU_INTBP_CFG_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
-        // 主循环调用 OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1), 3, 16, 0);
+        // HAL_I2C_Mem_Write(I2Cx, addr, MPU_INTBP_CFG_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        // 主循环调用 OLED_ShowUint(0, 0, MPU6050_Init(&hi2c1, addr), 3, 16, 0);
 
         // power management register 0X6B we should write all 0's to wake the sensor up
         Data = 0;
-        HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, PWR_MGMT_1_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        HAL_I2C_Mem_Write(I2Cx, addr, PWR_MGMT_1_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
 
         // FSYNC 与 DLPF配置，见数据手册11面
         Data = 0x06;
-        HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, FSYNC_DLPF_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
-
+        HAL_I2C_Mem_Write(I2Cx, addr, FSYNC_DLPF_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        
         // Set DATA RATE of 1KHz by writing SMPLRT_DIV register
         Data = 0x09; // 100Hz 读取一次陀螺仪
-        HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, SMPLRT_DIV_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        HAL_I2C_Mem_Write(I2Cx, addr, SMPLRT_DIV_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
 
         // Set accelerometer configuration in ACCEL_CONFIG Register
         // XA_ST=0,YA_ST=0,ZA_ST=0, FS_SEL=0 -> ±2g
         Data = 0x00;
-        HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, ACCEL_CONFIG_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        HAL_I2C_Mem_Write(I2Cx, addr, ACCEL_CONFIG_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
 
         // Set Gyroscopic configuration in GYRO_CONFIG Register
         // XG_ST=0,YG_ST=0,ZG_ST=0, FS_SEL=0 -> ±250 deg/s
         Data = 0x00;
-        HAL_I2C_Mem_Write(I2Cx, MPU6050_ADDR, GYRO_CONFIG_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
+        HAL_I2C_Mem_Write(I2Cx, addr, GYRO_CONFIG_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
         return 0;
     }
     return 1;
@@ -134,7 +144,7 @@ uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx)
  * @param  sample_count: 采样次数，建议200~500次
  * @retval None
  */
-void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct, uint16_t sample_count)
+void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, uint16_t sample_count)
 {
     uint8_t Rec_Data[6];
     int32_t sum_x = 0, sum_y = 0, sum_z = 0;
@@ -143,7 +153,7 @@ void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct, uint
     for (uint16_t i = 0; i < sample_count; i++)
     {
         HAL_StatusTypeDef status = HAL_I2C_Mem_Read(
-            I2Cx, MPU6050_ADDR, GYRO_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
+            I2Cx, addr, GYRO_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
 
         // 只累加读取成功的样本，避免偶发I2C错误污染校准结果
         if (status == HAL_OK)
@@ -177,13 +187,13 @@ void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct, uint
     }
 }
 
-HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct)
+HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, const float *correction)
 {
     uint8_t Rec_Data[6];
 
     // Read 6 BYTES of data starting from ACCEL_XOUT_H register
 
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDR, ACCEL_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, addr, ACCEL_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
 
     DataStruct->Accel_X_RAW = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
     DataStruct->Accel_Y_RAW = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
@@ -194,20 +204,20 @@ HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStr
          I have configured FS_SEL = 0. So I am dividing by 16384.0
          for more details check ACCEL_CONFIG Register              ****/
 
-    DataStruct->Ax = (DataStruct->Accel_X_RAW - X_ACC_OFFSET) / X_ACC_SCALE;
-    DataStruct->Ay = (DataStruct->Accel_Y_RAW - Y_ACC_OFFSET) / Y_ACC_SCALE;
-    DataStruct->Az = (DataStruct->Accel_Z_RAW - Z_ACC_OFFSET) / Z_ACC_SCALE;
+    DataStruct->Ax = (DataStruct->Accel_X_RAW - correction[0]) / correction[3];
+    DataStruct->Ay = (DataStruct->Accel_Y_RAW - correction[1]) / correction[4];
+    DataStruct->Az = (DataStruct->Accel_Z_RAW - correction[2]) / correction[5];
 
     return status;
 }
 
-HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct)
+HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct)
 {
     uint8_t Rec_Data[6];
 
     // Read 6 BYTES of data starting from GYRO_XOUT_H register
 
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDR, GYRO_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, addr, GYRO_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
 
     DataStruct->Gyro_X_RAW = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
     DataStruct->Gyro_Y_RAW = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
@@ -225,14 +235,14 @@ HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStru
     return status;
 }
 
-HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct)
+HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct)
 {
     uint8_t Rec_Data[2];
     int16_t temp;
 
     // Read 2 BYTES of data starting from TEMP_OUT_H_REG register
 
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDR, TEMP_OUT_H_REG, 1, Rec_Data, 2, MPU6050_I2C_TIMEOUT);
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, addr, TEMP_OUT_H_REG, 1, Rec_Data, 2, MPU6050_I2C_TIMEOUT);
 
     temp = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
     DataStruct->Temperature = (float)((int16_t)temp / (float)340.0 + (float)36.53);
@@ -240,14 +250,14 @@ HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStru
     return status;
 }
 
-HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct)
+HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, const float *correction)
 {
     uint8_t Rec_Data[14];
     int16_t temp;
 
     // Read 14 BYTES of data starting from ACCEL_XOUT_H register
 
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, MPU6050_ADDR, ACCEL_XOUT_H_REG, 1, Rec_Data, 14, MPU6050_I2C_TIMEOUT);
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(I2Cx, addr, ACCEL_XOUT_H_REG, 1, Rec_Data, 14, MPU6050_I2C_TIMEOUT);
 
     DataStruct->Accel_X_RAW = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
     DataStruct->Accel_Y_RAW = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
@@ -257,9 +267,9 @@ HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruc
     DataStruct->Gyro_Y_RAW = (int16_t)(Rec_Data[10] << 8 | Rec_Data[11]);
     DataStruct->Gyro_Z_RAW = (int16_t)(Rec_Data[12] << 8 | Rec_Data[13]);
 
-    DataStruct->Ax = (DataStruct->Accel_X_RAW - X_ACC_OFFSET) / X_ACC_SCALE;
-    DataStruct->Ay = (DataStruct->Accel_Y_RAW - Y_ACC_OFFSET) / Y_ACC_SCALE;
-    DataStruct->Az = (DataStruct->Accel_Z_RAW - Z_ACC_OFFSET) / Z_ACC_SCALE;
+    DataStruct->Ax = (DataStruct->Accel_X_RAW - correction[0]) / correction[3];
+    DataStruct->Ay = (DataStruct->Accel_Y_RAW - correction[1]) / correction[4];
+    DataStruct->Az = (DataStruct->Accel_Z_RAW - correction[2]) / correction[5];
     DataStruct->Temperature = (float)((int16_t)temp / (float)340.0 + (float)36.53);
     DataStruct->Gx = (DataStruct->Gyro_X_RAW - DataStruct->Gyro_X_Offset) / 131.0;
     DataStruct->Gy = (DataStruct->Gyro_Y_RAW - DataStruct->Gyro_Y_Offset) / 131.0;

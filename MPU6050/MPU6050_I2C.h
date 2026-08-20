@@ -11,6 +11,12 @@
 #include <stdint.h>
 #include "stm32f1xx_hal.h"
 
+#define MPU6050_GW_ADDR 0xD0
+#define MPU6050_CHASSIS_ADDR 0xD2
+
+extern const float mpu_gw_correction[6];
+extern const float mpu_chassis_correction[6];
+
 // MPU6050 structure
 typedef struct
 {
@@ -50,12 +56,12 @@ typedef struct
     double P[2][2];
 } Kalman_t;
 
-uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx);
-void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct, uint16_t sample_count);
-HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
-HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
-HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
-HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, MPU6050_t *DataStruct);
+uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx, uint8_t addr);
+void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, uint16_t sample_count);
+HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, const float *correction);
+HAL_StatusTypeDef MPU6050_Read_Gyro(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct);
+HAL_StatusTypeDef MPU6050_Read_Temp(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct);
+HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, const float *correction);
 double Kalman_getAngle(Kalman_t *Kalman, double newAngle, double newRate, double dt);
 
 #endif /* __MPU6050_I2C_H */

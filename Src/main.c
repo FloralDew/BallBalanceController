@@ -93,6 +93,7 @@ Laser laser = {
 // 全局不能写赋值这样的可执行语句. 只有在函数体内可以
 // mpu6050
 MPU6050_t MPU6050_gw;
+MPU6050_t MPU6050_chassis;
 // 旋转编码器
 Rotary_encoder rotary_encoder = {
   .count_raw = 0,
@@ -240,7 +241,7 @@ static void task_rotary_encoder(void)
   if (rotary_encoder.modified_flag)
   {
     rotary_encoder.modified_flag = 0;
-    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f + 2.0f;
+    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f + 3.0f;
     OLED_printf(12, 0, 12, 0, "rot: %-4g", rotary_encoder.ball_target);
   }
 }
@@ -248,9 +249,11 @@ static void task_rotary_encoder(void)
 static void task_read_mpu(void)
 {
   static int i2c1_fault_cnt = 0;
-  if (MPU6050_Read_All(&hi2c1, &MPU6050_gw) == HAL_OK)
+  if (MPU6050_Read_All(&hi2c1, MPU6050_GW_ADDR, &MPU6050_gw, mpu_gw_correction) == HAL_OK &&
+      MPU6050_Read_All(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, mpu_chassis_correction) == HAL_OK)
   {
     Guideway_FeedAngle(MPU6050_gw.KalmanAngleX); // 外部给予控制器当前角度
+    UART_DMA_printf(&huart1, "%f,%f,%f\n", MPU6050_chassis.Ax, MPU6050_chassis.Ay, MPU6050_chassis.Az);
   } else {
     HAL_I2C_DeInit(&hi2c1);
     HAL_Delay(2);
@@ -380,9 +383,11 @@ int main(void)
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_1);
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_2);
   // MPU6050初始化
-  while (MPU6050_Init(&hi2c1) == 1); // wait for mpu6050 to init
+  while (MPU6050_Init(&hi2c1, MPU6050_GW_ADDR) == 1); // wait for mpu6050 to init
+  while (MPU6050_Init(&hi2c1, MPU6050_CHASSIS_ADDR) == 1);
   OLED_printf(0, 0, 12, 0, "MPU Calibrating...");
-  MPU6050_Calibrate_Gyro(&hi2c1, &MPU6050_gw, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
+  MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_GW_ADDR, &MPU6050_gw, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
+  MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 300);
   OLED_Clear(0, 7);
   // 按钮初始化
   Button_Init(&hbutton, BTN_GPIO_Port, BTN_Pin);
@@ -598,7 +603,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 63;
+  htim3.Init.Period = 59;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI1;
