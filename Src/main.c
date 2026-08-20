@@ -62,7 +62,8 @@ typedef struct {
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+#define OLED_STATE_POS_COL 0
+#define OLED_STATE_POS_ROW 5
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -186,18 +187,29 @@ static void task_get_button(void)
   Button_Get(&hbutton);
   BTN_StateTypedef btn_type = hbutton.btn_state;
   hbutton.btn_state = BTN_RELEASE; // 及时复位
-  static int cnt[3] = {0, 0, 0};
+
   switch (btn_type)
   {
     case BTN_PRESS:
-      OLED_printf(0, 4, 12, 0, "%d", ++cnt[0]);
-      break;
-    case BTN_LONGPRESS:
-      OLED_printf(5, 4, 12, 0, "%d", ++cnt[1]);
+      if (Controller_GetState() == CONTROLLER_IDLE)
+      {
+        BallStablization_Start(0, rotary_encoder.ball_target * 10.0f); // cm -> mm
+        Sched_SetEnable(TASK_BALL_STAB, 1);
+        Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
+      }
       break;
     case BTN_DOUBLEPRESS:
-      OLED_printf(10, 4, 12, 0, "%d", ++cnt[2]);
+      // OLED_printf(10, 4, 12, 0, "%d", ++cnt[2]);
       break;
+    case BTN_LONGPRESS:
+      if (Controller_GetState() == CONTROLLER_IDLE)
+      {
+        ZeroGuideway_Start();
+        Sched_SetEnable(TASK_ZERO_GUIDEWAY, 1);
+        Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
+      }
+      break;
+      
     default:
       break;
   }
@@ -228,7 +240,7 @@ static void task_rotary_encoder(void)
   if (rotary_encoder.modified_flag)
   {
     rotary_encoder.modified_flag = 0;
-    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f + 5.0f;
+    rotary_encoder.ball_target = rotary_encoder.count_raw / 4.0f + 2.0f;
     OLED_printf(12, 0, 12, 0, "rot: %-4g", rotary_encoder.ball_target);
   }
 }
@@ -277,10 +289,8 @@ static void task_zero_guideway(void)
   if (Controller_GetState() == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_ZERO_GUIDEWAY, 0);
-    // static uint8_t cmd[] = {MOTOR_ADDR, 0x0a, 0x6d, 0x6b}; // 将当前位置角度清零
-    // HAL_UART_Transmit_DMA(&huart3, cmd, sizeof(cmd));
     OLED_Clear(5, 5);
-    Show_State_On_OLED(0, 5, 12, 1);
+    Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
   }
 }
 
@@ -292,20 +302,21 @@ static void task_get_lut(void) {
   UART_DMA_printf(&huart1, "%d,%f\n", pulse, angle);
   if (angle < -15.0f)
   {
-    Controller_Abort();
+    Controller_SetIDLE();
     Sched_SetEnable(TASK_GET_LUT, 0);
-    Show_State_On_OLED(0, 5, 12, 1);
+    OLED_Clear(5, 5);
+    Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
   }
   pulse += 5; // 逐渐往下运动
 }
 
 static void task_ball_stab(void)
 {
-  if (BallStablization_Poll(0, 5.0) == CONTROLLER_IDLE)
+  if (BallStablization_Poll(0) == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_BALL_STAB, 0);
     OLED_Clear(5, 5);
-    Show_State_On_OLED(0, 5, 12, 1);
+    Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
   }
 }
 
@@ -380,20 +391,16 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   // 接收不定长数据，LASER_BUF_SIZE为最大长度. 同样必须打开uart1全局中断
   HAL_UARTEx_ReceiveToIdle_DMA(&huart2, laser.activeBuf, LASER_BUF_SIZE);
-
   rotary_encoder.modified_flag = 1; // 触发一次旋转编码器显示
-
   Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
-  // ZeroGuideway_Start();
-  // Sched_SetEnable(TASK_ZERO_GUIDEWAY, 1);
-  Motor_Return_Origin(); // 电机回零，实测会飘0.2度以内
-  HAL_Delay(1000);
-  BallStablization_Start(0);
-  Sched_SetEnable(TASK_BALL_STAB, 1);
 
-  Show_State_On_OLED(0, 5, 12, 1);
+  Motor_Return_Origin(); // 电机回零，实测会飘0.2度以内
+  HAL_Delay(1000); // 等待电机回零完成
+
+  Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1); // idle
   while (1)
   {
     Sched_Run();
@@ -591,7 +598,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 39;
+  htim3.Init.Period = 63;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI1;

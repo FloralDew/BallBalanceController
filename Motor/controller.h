@@ -19,7 +19,7 @@ typedef enum
 extern const char *controller_state_str[CONTROLLER_STATE_COUNT];
 
 /** 中止（不会主动刹车，只是停止发新指令） */
-void Controller_Abort(void);
+void Controller_SetIDLE(void);
 /**
  * @brief  以固定周期喂入角度（建议放在 10ms 的 MPU 采集任务里）
  *         模块内部做滑动平均，替代原来阻塞式的多次采样
@@ -47,7 +47,7 @@ void Get_Guideway_LUT_Start(void);
 void Get_Guideway_LUT_Poll(int pulse);
 
 /* ************************ 平衡球 ********************** */
-void BallStablization_Start(bool acc_comp);
-Controller_State_t BallStablization_Poll(bool acc_comp, double ball_target_cm);
+void BallStablization_Start(bool acc_comp, float ball_target_mm);
+Controller_State_t BallStablization_Poll(bool acc_comp);
 
 #endif
