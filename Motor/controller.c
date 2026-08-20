@@ -249,28 +249,38 @@ static int Calc_Pulse_By_Angle(double target_angle)
     // theta是活动端向下为负
 }
 
-static PID_t s_ball_pid;
+/*
+钢球平衡控制思路：
+设定两个积分项，一个用于踢动球，一个用于消除稳态误差
+*/
+static PID_t s_ball_pid, s_kick_pid; // kick是为了防止球一直不动
 void BallStablization_Start(bool acc_comp, float ball_target_mm)
 {
     if (s_state != CONTROLLER_IDLE)
         return;
     (void)acc_comp;
 
-    const float BS_KP = 0.065f;       /* 球每偏离1 mm，导轨倾角变化的deg */
-    const float BS_KI = 0.000f;       /* 误差每持续 1mm·1s，倾角累加的deg */
-    const float BS_KD = 0.060f;       /* 球每1mm/s，导轨倾角变化的deg */
-    const float BS_D_ALPHA = 0.25f;   /* 微分低通系数，越小越平滑，响应越慢 */
-    const float BS_I_MAX = 10.0f;     /* 积分限幅 */
-    const float BS_I_SEP = 60.0f;     /* |误差|>SEP 时不积分，先靠 P 快速接近 */
-    const float BS_POS_DB = 9.0f;     // 位置死区，单位为mm
+    const float BS_KP = 0.03f;        /* 球每偏离1 mm，导轨倾角变化的deg */
+    const float BS_KI = 0.05f;       /* 误差每持续 1mm·1s，倾角累加的deg */
+    const float BS_KD = 0.025f;       /* 球每1mm/s，导轨倾角变化的deg */
+    const float BS_D_ALPHA = 0.4f;   /* 微分低通系数，越小越平滑，响应越慢 */
+    const float BS_I_MAX = 10.0f;     // 积分限幅：使用较小的积分限幅配合较大的ki，有利于快速响应
+    const float BS_I_SEP = 20.0f;     /* |误差|>SEP 时不积分，先靠 P 快速接近 */
+
+    const float BS_KICK_KI = 0.25f; // 雷霆大踢把球踢动
+    const float BS_KICK_I_MAX = 10.0f;
+    const float BS_KICK_I_SEP = 60.0f;
 
     PID_Init(&s_ball_pid, BS_KP, BS_KI, BS_KD);
     PID_SetTarget(&s_ball_pid, ball_target_mm);
     PID_SetOutputLimit(&s_ball_pid, -GUIDEWAY_ANGLE_LIMIT, GUIDEWAY_ANGLE_LIMIT);
     PID_SetIntegralLimit(&s_ball_pid, BS_I_MAX, BS_I_SEP);
     PID_SetDFilter(&s_ball_pid, BS_D_ALPHA);
-    PID_SetDeadband(&s_ball_pid, BS_POS_DB); // 这个是比例/积分作用的死区，不影响微分
+    PID_SetDeadband(&s_ball_pid, 0.0); // 位置死区，单位为mm. 这个是比例/积分累加作用的死区，不影响微分
 
+    PID_Init(&s_kick_pid, 0, BS_KICK_KI, 0);
+    PID_SetTarget(&s_kick_pid, ball_target_mm);
+    PID_SetIntegralLimit(&s_kick_pid, BS_KICK_I_MAX, BS_KICK_I_SEP);
     // s_bs_theta_last = 0.0f;
     // s_bs_pulse_valid = 0;
     s_state = CONTROLLER_BALL_STABLIZATION;
@@ -278,21 +288,19 @@ void BallStablization_Start(bool acc_comp, float ball_target_mm)
 
 /* ************************* debug pid ***************************** */
 // 必须是全局变量才能调试
-float debug_kp = 0.03f;
-float debug_ki = 0.3f; // 雷霆大踢把球踢动
-float debug_kd = 0.025f;
-float debug_d_alpha = 0.4f;
-uint32_t debug_spd = 70;
-uint8_t debug_acc = 230;
-// float debug_kp_ratio = 1.2f;
-// float debug_kd_ratio = 1.2f;
+// float debug_kp = 0.03f;
+// float debug_ki = 0.05f;
+// float debug_kd = 0.025f;
+// float debug_d_alpha = 0.4f;
+// uint32_t debug_spd = 70;
+// uint8_t debug_acc = 240;
 Controller_State_t BallStablization_Poll(bool acc_comp)
 {
-    PID_SetTunings(&s_ball_pid, debug_kp, debug_ki, debug_kd);
-    PID_SetDFilter(&s_ball_pid, debug_d_alpha);
+    // PID_SetTunings(&s_ball_pid, debug_kp, debug_ki, debug_kd);
+    // PID_SetDFilter(&s_ball_pid, debug_d_alpha);
     /* ************** 调试结束 *************** */
     
-    const uint8_t BS_STABLE_CNT = 75; // 连续75拍(1.5s)落在位置死区内，才认为稳定
+    const uint8_t BS_STABLE_CNT = 75; // 连续75拍落在位置死区内，才认为稳定
     const int BS_PULSE_DB = 3;     /* ★ 死区放输出端：变化不够大就不重发指令 */
     const float BS_CTRL_DT = 0.020f; /* 调度器给的控制周期s */
 
@@ -308,12 +316,12 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
     pos = s_ball_pos;
 
     /* ---- 收敛判定：连续多拍落在死区内 ---- */
-    if (fabsf(s_ball_pid.target - pos) < s_ball_pid.deadband)
+    if (fabsf(s_ball_pid.target - pos) < 9.0f)
     {
         if (++s_ball_stable_count >= BS_STABLE_CNT)
         {
             s_state = CONTROLLER_IDLE;
-            Absolute_Pos_CW_Positive(10, 1, 0); // 缓慢回零
+            Absolute_Pos_CW_Positive(1, 1, 0); // 缓慢回零
             return s_state;
         }
     }
@@ -322,28 +330,28 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
         s_ball_stable_count = 0;
     }
 
-    if (fabsf(s_ball_pid.d_filt) > 5.0f) // 认为球发生了运动
-        s_ball_pid.integral = 0.0f; // 这个逻辑是原pid库没有的，这里手动补上
-
-    // if (fabsf(s_ball_pid.target - pos) < 15.0f && fabsf(s_ball_pid.d_filt) < 20.0f)
-    // {
-    //     debug_acc = 150;
-    //     PID_SetTunings(&s_ball_pid, debug_kp / debug_kp_ratio, debug_ki, debug_kd / debug_kd_ratio);
-    // }
+    float kick_theta = PID_Calc(&s_kick_pid, pos, BS_CTRL_DT);
+    // 距离较近或认为球发生了运动
+    if (fabsf(s_ball_pid.target - pos) < 15.0f || fabsf(s_ball_pid.d_filt) > 5.0f)
+    {
+        s_kick_pid.integral = 0.0f; // 这个逻辑是原pid库没有的，这里手动补上
+        kick_theta = 0.0f;
+    }
 
     /* 输出直接就是导轨倾角(度)：库内 err = target - measure，
        d_filt = -v，展开即 -(Kp*e + Ki*∫e + Kd*v) */
-    theta = PID_Calc(&s_ball_pid, pos, BS_CTRL_DT);
+    theta = PID_Calc(&s_ball_pid, pos, BS_CTRL_DT) + kick_theta;
 
     /* 输出死区：避免驱动器反复重规划梯形曲线 */
     pulse = Calc_Pulse_By_Angle((double)theta);
     if (ABS(pulse - s_bs_pulse_last) >= BS_PULSE_DB)
     {
-        Absolute_Pos_CW_Positive(debug_spd, debug_acc, pulse);
+        Absolute_Pos_CW_Positive(70, (int)(230 - s_ball_stable_count * 2.1), pulse); // 越稳定越慢，防止归零后球自己跑走
         s_bs_pulse_last = pulse;
     }
 
     OLED_printf(0, 1, 12, 0, "%f   ", s_ball_pid.integral);
+    OLED_printf(12, 1, 12, 0, "%f   ", s_kick_pid.integral);
     UART_DMA_printf(&huart1, "%f\n", s_ball_pid.d_filt);
     return s_state;
 }
