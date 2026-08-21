@@ -194,14 +194,18 @@ static void task_get_button(void)
     case BTN_PRESS:
       if (Controller_GetState() == CONTROLLER_IDLE)
       {
-        BallStablization_Start(0, rotary_encoder.ball_target * 10.0f); // cm -> mm
+        BallStablization_Start(rotary_encoder.ball_target * 10.0f); // cm -> mm
         Sched_SetEnable(TASK_BALL_STAB, 1);
         Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
       }
       break;
     case BTN_DOUBLEPRESS:
-      BallAccComp_Start();
-      Sched_SetEnable(TASK_BALL_ACC_COMP, 1);
+      if (Controller_GetState() == CONTROLLER_IDLE)
+      {
+        BallAccComp_Start(rotary_encoder.ball_target * 10.0f);
+        Sched_SetEnable(TASK_BALL_ACC_COMP, 1);
+        Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
+      }
       break;
     case BTN_LONGPRESS:
       if (Controller_GetState() == CONTROLLER_IDLE)
@@ -317,7 +321,7 @@ static void task_get_lut(void) {
 
 static void task_ball_stab(void)
 {
-  if (BallStablization_Poll(0) == CONTROLLER_IDLE)
+  if (BallStablization_Poll() == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_BALL_STAB, 0);
     OLED_Clear(5, 5);
@@ -327,7 +331,7 @@ static void task_ball_stab(void)
 
 static void task_ball_acc_comp(void)
 {
-  BallAccComp_Poll();
+  BallAccComp_Poll(); // 需要手动SetIdle才能停止
 }
 
 /* ---------- 任务表 ---------- */

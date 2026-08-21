@@ -12,7 +12,8 @@ typedef enum
     CONTROLLER_ZEROING, /* 正在回零 */
     // CONTROLLER_ZERO_DONE,        /* 回零成功 */
     CONTROLLER_GET_LUT,
-    CONTROLLER_BALL_STABLIZATION,
+    CONTROLLER_BALL_STABLIZATION, // 指定位置停球
+    CONTROLLER_ACC_COMP, // 加速度补偿
     CONTROLLER_STATE_COUNT
 } Controller_State_t;
 
@@ -48,8 +49,9 @@ void Get_Guideway_LUT_Start(void);
 void Get_Guideway_LUT_Poll(int pulse);
 
 /* ************************ 平衡球 ********************** */
-void BallStablization_Start(bool acc_comp, float ball_target_mm);
-Controller_State_t BallStablization_Poll(bool acc_comp);
+void BallStablization_Start(float ball_target_mm);
+Controller_State_t BallStablization_Poll(void);
+void BallAccComp_Start(float ball_target_mm);
 void BallAccComp_Poll(void);
 
 #endif
