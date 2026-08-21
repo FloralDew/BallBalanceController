@@ -6,7 +6,7 @@
 /* ================== 硬件相关参数（必须按实际标定） ================== */
 #define MOTOR_DIR_CW 0  /* 接口定义：0 = CW */
 #define MOTOR_DIR_CCW 1 /* 非 0 = CCW */
-#define RAD_TO_DEG 57.29577951308232
+#define RAD_TO_DEG 57.295779513082320876798154814105
 
 const char *controller_state_str[CONTROLLER_STATE_COUNT] =
 {
@@ -68,6 +68,14 @@ void Guideway_FeedBallPos(float pos) // 单位为mm
     s_ball_pos = pos;
 }
 
+static float s_filtered_acc = 0.0f;
+void Guideway_FeedAcc(float acc)
+{
+    const float ALPHA = 0.5f;
+    s_filtered_acc = ALPHA * acc + (1.0f - ALPHA) * s_filtered_acc; // 一阶低通滤波，平滑加速度
+    UART_DMA_printf(&huart1, "%f,%f\n", acc, s_filtered_acc);
+}
+
 void Controller_SetIDLE(void)
 {
     s_state = CONTROLLER_IDLE;
@@ -88,6 +96,52 @@ void Motor_Return_Origin(void)
 }
 
 /* ***************** 控制器通用函数结束 ******************** */
+
+/* *************************** 获取LUT ***************************** */
+
+void Get_Guideway_LUT_Start(void) // 应在回零后调用
+{
+    if (s_state != CONTROLLER_IDLE)
+        return;
+    s_state = CONTROLLER_GET_LUT;
+}
+
+static void Motor_CWPositive(uint16_t vel, uint8_t acc, int pulse, uint8_t mode)
+{
+    uint8_t dir = MOTOR_DIR_CW; // 当pulse > 0时向下倾斜，MPU读取angle < 0
+    if (pulse < 0)
+    {
+        dir = MOTOR_DIR_CCW;
+    }
+    pulse = ABS(pulse);
+    Emm_V5_Pos_Control(MOTOR_ADDR, dir, vel, acc, pulse, mode, false); // 1绝对位置2相对位置
+}
+
+void Get_Guideway_LUT_Poll(int pulse)
+{
+    const uint16_t SPD = 20;
+    const uint8_t ACC = 0;
+    if (s_state != CONTROLLER_GET_LUT)
+        return;
+
+    Motor_CWPositive(SPD, ACC, pulse, 1);
+}
+
+#define GUIDEWAY_ANGLE_LIMIT 15.0
+static int Calc_Pulse_By_Angle(double target_angle)
+{
+    const double OFFSET = 5.867950943;
+
+    target_angle = fclamp(target_angle, -GUIDEWAY_ANGLE_LIMIT, GUIDEWAY_ANGLE_LIMIT);
+    double sqared = target_angle * target_angle;
+    double cubed = sqared * target_angle;
+    double pulse = ((5.867950943 - 35.58989338 * target_angle + 3.704467377 * sqared - 0.09361729684 * cubed) /
+                    (1 - 0.1031174851 * target_angle + 0.002126693238 * sqared + 0.00002505123008 * cubed)) -
+                   OFFSET;
+    return (int)(pulse + 0.5); // 有正有负，必须和Motor_CWPositive配合使用
+    // 这里的pulse表示顺时针旋转、向下倾斜为正
+    // theta是活动端向下为负，是mpu6050读取的角度
+}
 
 /* ************************************ 导轨回零 *****************************************
  * 控制思路：
@@ -112,7 +166,7 @@ void ZeroGuideway_Start(void)
     const float ZG_INT_MAX = 5.0f; /* 积分限幅 */
     const float ZG_INT_SEP = 3.0f; /* |误差|>3° 时不积分，先靠 P 快速接近 */
     const float ZG_D_ALPHA = 0.3f; /* 微分低通，噪声大就再调小 */
-    const float ZG_DEADBAND = 0.03f; /* 死区，略大于静态抖动 */
+    const float ZG_DEADBAND = 0.03f; /* 死区单位为度，略大于静态抖动 */
 
     const float ZG_MAX_STEP_DEG = 2.0f; /* 单拍最大修正量（导轨度数），防止大步冲过头 */
     const float ZG_TARGET_ANGLE = 0.0f; /* 目标角度 */
@@ -136,7 +190,6 @@ void ZeroGuideway_Start(void)
 Controller_State_t ZeroGuideway_Poll(void)
 {
     const float ZG_STABLE_CNT = 5;     /* 连续 N 拍在死区内才认为回零完成. 每拍0.25s */
-    // const int ZG_MIN_PULSE = 2;        /* 小于该脉冲数不发命令，避免无意义抖动 */
     const int ZERO_SPD_RPM = 15;
     const int ZERO_ACC = 0;
 
@@ -184,71 +237,15 @@ Controller_State_t ZeroGuideway_Poll(void)
     // s_last_out = out_deg;
 
     uint32_t pulse;
-    uint8_t dir;
-    pulse = (uint32_t)(fabsf(out_deg) * 36.48f + 0.5f); // +0.5是为了四舍五入
     // 回归可得每一度大约需要36.48个脉冲（线性段）
-
-    // if (pulse >= ZG_MIN_PULSE)
-    // {
-    /* 误差为正（当前角度偏小，需要角度增大）→ 电机 CCW */
-    if (out_deg > 0.0f)
-        dir = MOTOR_DIR_CCW;
-    else
-        dir = MOTOR_DIR_CW;
-
-    /* raF = 2：相对当前电机实时位置运动，不会累积历史目标位置误差 */
-    Emm_V5_Pos_Control(MOTOR_ADDR, dir, ZERO_SPD_RPM, ZERO_ACC, pulse, 2, false);
-    // }
+    pulse = Calc_Pulse_By_Angle(out_deg);
+    Motor_CWPositive(ZERO_SPD_RPM, ZERO_ACC, pulse, 2);
     return s_state;
 }
 
-/* *************************** 获取LUT ***************************** */
 
-void Get_Guideway_LUT_Start(void) // 应在回零后调用
-{
-    if (s_state != CONTROLLER_IDLE)
-        return;
-    s_state = CONTROLLER_GET_LUT;
-}
-
-static void Absolute_Pos_CW_Positive(uint16_t vel, uint8_t acc, int pulse)
-{
-    uint8_t dir = MOTOR_DIR_CW; // 当pulse > 0时向下倾斜，MPU读取angle < 0
-    if (pulse < 0)
-    {
-        dir = MOTOR_DIR_CCW;
-    }
-    pulse = ABS(pulse);
-    Emm_V5_Pos_Control(MOTOR_ADDR, dir, vel, acc, pulse, 1, false); // 绝对位置
-}
-
-void Get_Guideway_LUT_Poll(int pulse)
-{
-    const uint16_t SPD = 20;
-    const uint8_t ACC = 0;
-    if (s_state != CONTROLLER_GET_LUT)
-        return;
-
-    Absolute_Pos_CW_Positive(SPD, ACC, pulse);
-}
 
 /* ***************************** 钢球控制系统 ************************************* */
-#define GUIDEWAY_ANGLE_LIMIT 15.0
-static int Calc_Pulse_By_Angle(double target_angle) 
-{
-    const double OFFSET = 5.867950943;
-
-    target_angle = fclamp(target_angle, -GUIDEWAY_ANGLE_LIMIT, GUIDEWAY_ANGLE_LIMIT);
-    double sqared = target_angle * target_angle;
-    double cubed = sqared * target_angle;
-    double pulse = ((5.867950943 - 35.58989338 * target_angle + 3.704467377 * sqared - 0.09361729684 * cubed) /
-                    (1 - 0.1031174851 * target_angle + 0.002126693238 * sqared + 0.00002505123008 * cubed)) -
-                   OFFSET;
-    return (int)(pulse + 0.5); // 有正有负，必须和Absolute_Pos_CW_Positive配合使用
-    // 这里的pulse表示顺时针旋转、向下倾斜为正
-    // theta是活动端向下为负
-}
-
 /*
 钢球平衡控制思路：
 设定两个积分项，一个用于踢动球，一个用于消除稳态误差
@@ -322,7 +319,7 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
         if (++s_ball_stable_count >= BS_STABLE_CNT)
         {
             s_state = CONTROLLER_IDLE;
-            Absolute_Pos_CW_Positive(1, 1, 0); // 缓慢回零
+            Motor_CWPositive(1, 1, 0, 1); // 缓慢回零
             return s_state;
         }
     }
@@ -347,8 +344,8 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
     pulse = Calc_Pulse_By_Angle((double)theta);
     // if (ABS(pulse - s_bs_pulse_last) >= BS_PULSE_DB)
     // {
-    Absolute_Pos_CW_Positive((int)(70 - s_ball_stable_count * 0.15), 
-                            (int)(230 - s_ball_stable_count * 2.1), pulse); // 越稳定越慢，防止归零后球自己跑走
+    Motor_CWPositive((int)(70 - s_ball_stable_count * 0.15), 
+                     (int)(230 - s_ball_stable_count * 2.1), pulse, 1); // 越稳定越慢，防止归零后球自己跑走
     // s_bs_pulse_last = pulse;
     // }
 
@@ -359,6 +356,8 @@ Controller_State_t BallStablization_Poll(bool acc_comp)
 }
 
 
+/* ****************** 加速度补偿 ***************** */
+
 void BallAccComp_Start(void)
 {
     // if (s_state != CONTROLLER_BALL_STABLIZATION)
@@ -366,9 +365,17 @@ void BallAccComp_Start(void)
 
 }
 
+uint32_t ac_debug_spd = 20;
+uint8_t ac_debug_acc = 0;
 void BallAccComp_Poll(void)
 {
+    const float ACC_DB = 0.01f;
     // if (s_state != CONTROLLER_BALL_STABLIZATION)
     //     return;
     
+    float acc = s_filtered_acc;
+    int pulse = Calc_Pulse_By_Angle(-atanf(acc) * RAD_TO_DEG); // a>0时theta应该<0
+    if (fabsf(acc) < ACC_DB)
+        pulse = 0;
+    Motor_CWPositive(ac_debug_spd, ac_debug_acc, pulse, 1);
 }

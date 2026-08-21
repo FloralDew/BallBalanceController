@@ -26,6 +26,7 @@ void Controller_SetIDLE(void);
  */
 void Guideway_FeedAngle(float angle);
 void Guideway_FeedBallPos(float pos);
+void Guideway_FeedAcc(float acc);
 Controller_State_t Controller_GetState(void);
 void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colorTurn);
 void Motor_Return_Origin(void);
@@ -49,5 +50,6 @@ void Get_Guideway_LUT_Poll(int pulse);
 /* ************************ 平衡球 ********************** */
 void BallStablization_Start(bool acc_comp, float ball_target_mm);
 Controller_State_t BallStablization_Poll(bool acc_comp);
+void BallAccComp_Poll(void);
 
 #endif

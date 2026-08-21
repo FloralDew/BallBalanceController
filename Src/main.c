@@ -200,7 +200,8 @@ static void task_get_button(void)
       }
       break;
     case BTN_DOUBLEPRESS:
-      // OLED_printf(10, 4, 12, 0, "%d", ++cnt[2]);
+      BallAccComp_Start();
+      Sched_SetEnable(TASK_BALL_ACC_COMP, 1);
       break;
     case BTN_LONGPRESS:
       if (Controller_GetState() == CONTROLLER_IDLE)
@@ -253,7 +254,8 @@ static void task_read_mpu(void)
       MPU6050_Read_All(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, mpu_chassis_correction) == HAL_OK)
   {
     Guideway_FeedAngle(MPU6050_gw.KalmanAngleX); // 外部给予控制器当前角度
-    UART_DMA_printf(&huart1, "%f,%f,%f\n", MPU6050_chassis.Ax, MPU6050_chassis.Ay, MPU6050_chassis.Az);
+    Guideway_FeedAcc(MPU6050_chassis.Ay);
+    // UART_DMA_printf(&huart1, "%f,%f,%f\n", MPU6050_chassis.Ax, MPU6050_chassis.Ay, MPU6050_chassis.Az);
   } else {
     HAL_I2C_DeInit(&hi2c1);
     HAL_Delay(2);
@@ -323,6 +325,11 @@ static void task_ball_stab(void)
   }
 }
 
+static void task_ball_acc_comp(void)
+{
+  BallAccComp_Poll();
+}
+
 /* ---------- 任务表 ---------- */
 static Task_t task_list[TASK_COUNT] = {
   [TASK_LASER] =          {task_laser,          0,      1, 0},
@@ -331,6 +338,7 @@ static Task_t task_list[TASK_COUNT] = {
   [TASK_ZERO_GUIDEWAY] =  {task_zero_guideway,  250,    0, 0}, // 控制周期ms，需 > 传感器延迟 + 运动时间
   [TASK_GET_LUT] =        {task_get_lut,        3000,   0, 0},
   [TASK_BALL_STAB] =      {task_ball_stab,      20,     0, 0},
+  [TASK_BALL_ACC_COMP] =  {task_ball_acc_comp,  20,     0, 0},
   [TASK_DISPLAY_UART] =   {task_display_uart,   200,    1, 0},
   [TASK_ADC] =            {task_adc,            1000,   1, 0},
   [TASK_GET_BUTTON] =     {task_get_button,     10,     1, 0},
@@ -388,7 +396,7 @@ int main(void)
   OLED_printf(0, 0, 12, 0, "MPU Calibrating...");
   MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_GW_ADDR, &MPU6050_gw, 50); // 采集50次样本用于校准陀螺仪零偏，约需要50*10ms=0.5秒
   MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 50);
-  // MPU6050_Calibrate_Accel(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 50, mpu_chassis_correction, 0, 1, 0);
+  MPU6050_Calibrate_Accel(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 50, mpu_chassis_correction, 0, 1, 0);
   OLED_Clear(0, 7);
   // 按钮初始化
   Button_Init(&hbutton, BTN_GPIO_Port, BTN_Pin);
