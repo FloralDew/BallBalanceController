@@ -383,11 +383,12 @@ int main(void)
   HAL_TIM_Encoder_Start_IT(&htim3, TIM_CHANNEL_1);
   HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_2);
   // MPU6050初始化
-  while (MPU6050_Init(&hi2c1, MPU6050_GW_ADDR) == 1); // wait for mpu6050 to init
-  while (MPU6050_Init(&hi2c1, MPU6050_CHASSIS_ADDR) == 1);
+  while (MPU6050_Init(&hi2c1, MPU6050_GW_ADDR, &MPU6050_gw) == 1); // wait for mpu6050 to init
+  while (MPU6050_Init(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis) == 1);
   OLED_printf(0, 0, 12, 0, "MPU Calibrating...");
-  MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_GW_ADDR, &MPU6050_gw, 300); // 采集300次样本用于校准陀螺仪零偏，约需要300*2ms=0.6秒
-  MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 300);
+  MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_GW_ADDR, &MPU6050_gw, 50); // 采集50次样本用于校准陀螺仪零偏，约需要50*10ms=0.5秒
+  MPU6050_Calibrate_Gyro(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 50);
+  // MPU6050_Calibrate_Accel(&hi2c1, MPU6050_CHASSIS_ADDR, &MPU6050_chassis, 50, mpu_chassis_correction, 0, 1, 0);
   OLED_Clear(0, 7);
   // 按钮初始化
   Button_Init(&hbutton, BTN_GPIO_Port, BTN_Pin);

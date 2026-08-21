@@ -1,3 +1,6 @@
+#ifndef __BUTTON_H
+#define __BUTTON_H
+
 #include "main.h"
 
 #define BTN_LONGPRESSMS 1000
@@ -26,3 +29,6 @@ typedef struct
 
 void Button_Init(BTN_HandleTypedef *hbutton, GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 void Button_Get(BTN_HandleTypedef *hbutton);
+
+#endif
+

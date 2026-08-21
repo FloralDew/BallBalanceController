@@ -78,22 +78,29 @@ const float mpu_chassis_correction[6] = {
     16666.0  // Z_ACC_SCALE_CHASSIS
 };
 
-uint32_t timer;
-
-Kalman_t KalmanX = {
-    .Q_angle = 0.001f, // 越小，越信任"预测值"（即积分陀螺仪得到的角度），滤波结果越平滑但响应变慢
-    .Q_bias = 0.003f,  // 越小，零偏估计变化越慢，收敛也越慢
-    .R_measure = 0.03f // 越大，越不信任"测量值"（加速度计算出的角度），能压制加速度计噪声，但会让整体响应变慢、有轻微滞后
-};
-
-Kalman_t KalmanY = {
-    .Q_angle = 0.001f,
-    .Q_bias = 0.003f,
-    .R_measure = 0.03f,
-};
-
-uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx, uint8_t addr)
+uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct)
 {
+    DataStruct->Gyro_X_Offset = 0.0;
+    DataStruct->Gyro_Y_Offset = 0.0;
+    DataStruct->Gyro_Z_Offset = 0.0;
+    DataStruct->Accel_X_Offset = 0.0;
+    DataStruct->Accel_Y_Offset = 0.0;
+    DataStruct->Accel_Z_Offset = 0.0;
+
+    DataStruct->KalmanX = (Kalman_t){
+        .Q_angle = 0.001f, // 越小，越信任"预测值"（即积分陀螺仪得到的角度），滤波结果越平滑但响应变慢
+        .Q_bias = 0.003f,  // 越小，零偏估计变化越慢，收敛也越慢
+        .R_measure = 0.03f // 越大，越不信任"测量值"（加速度计算出的角度），能压制加速度计噪声，但会让整体响应变慢、有轻微滞后
+    };
+
+    DataStruct->KalmanY = (Kalman_t){
+        .Q_angle = 0.001f,
+        .Q_bias = 0.003f,
+        .R_measure = 0.03f,
+    };
+
+    DataStruct->timer = HAL_GetTick();
+
     uint8_t check;
     uint8_t Data;
 
@@ -120,7 +127,7 @@ uint8_t MPU6050_Init(I2C_HandleTypeDef *I2Cx, uint8_t addr)
         HAL_I2C_Mem_Write(I2Cx, addr, FSYNC_DLPF_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
         
         // Set DATA RATE of 1KHz by writing SMPLRT_DIV register
-        Data = 0x09; // 100Hz 读取一次陀螺仪
+        Data = 0x09; // 100Hz 读取陀螺仪
         HAL_I2C_Mem_Write(I2Cx, addr, SMPLRT_DIV_REG, 1, &Data, 1, MPU6050_I2C_TIMEOUT);
 
         // Set accelerometer configuration in ACCEL_CONFIG Register
@@ -168,7 +175,7 @@ void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *Da
             valid_samples++;
         }
 
-        HAL_Delay(2); // 采样间隔，避免读取过快导致总线/传感器压力过大，可根据实际调整
+        HAL_Delay(10); // 采样间隔
     }
 
     // 防止全部读取失败导致除0
@@ -184,6 +191,56 @@ void MPU6050_Calibrate_Gyro(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *Da
         DataStruct->Gyro_X_Offset = 0;
         DataStruct->Gyro_Y_Offset = 0;
         DataStruct->Gyro_Z_Offset = 0;
+    }
+}
+
+/**
+ * @description: 加速度计开机零偏校准，强制忽略重力影响
+*/
+void MPU6050_Calibrate_Accel(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6050_t *DataStruct, uint16_t sample_count,
+                             const float *correction, bool channel_x, bool channel_y, bool channel_z)
+{
+    uint8_t Rec_Data[6];
+    int32_t sum_x = 0, sum_y = 0, sum_z = 0;
+    uint16_t valid_samples = 0;
+
+    for (uint16_t i = 0; i < sample_count; i++)
+    {
+        HAL_StatusTypeDef status = HAL_I2C_Mem_Read(
+            I2Cx, addr, ACCEL_XOUT_H_REG, 1, Rec_Data, 6, MPU6050_I2C_TIMEOUT);
+        
+        // 只累加读取成功的样本，避免偶发I2C错误污染校准结果
+        if (status == HAL_OK)
+        {
+            int16_t ax_raw = (int16_t)(Rec_Data[0] << 8 | Rec_Data[1]);
+            int16_t ay_raw = (int16_t)(Rec_Data[2] << 8 | Rec_Data[3]);
+            int16_t az_raw = (int16_t)(Rec_Data[4] << 8 | Rec_Data[5]);
+            
+            sum_x += ax_raw;
+            sum_y += ay_raw;
+            sum_z += az_raw;
+            valid_samples++;
+        }
+
+        HAL_Delay(10); // 采样间隔
+    }
+
+    // 防止全部读取失败导致除0
+    if (valid_samples > 0)
+    {
+        if (channel_x)
+            DataStruct->Accel_X_Offset = (double)sum_x / valid_samples - correction[0];
+        if (channel_y)
+            DataStruct->Accel_Y_Offset = (double)sum_y / valid_samples - correction[1];
+        if (channel_z)
+            DataStruct->Accel_Z_Offset = (double)sum_z / valid_samples - correction[2];
+    }
+    else
+    {
+        // 全部采样失败（比如I2C总线异常），清零偏移量，退化为不做零偏修正
+        DataStruct->Accel_X_Offset = 0;
+        DataStruct->Accel_Y_Offset = 0;
+        DataStruct->Accel_Z_Offset = 0;
     }
 }
 
@@ -204,9 +261,9 @@ HAL_StatusTypeDef MPU6050_Read_Accel(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU6
          I have configured FS_SEL = 0. So I am dividing by 16384.0
          for more details check ACCEL_CONFIG Register              ****/
 
-    DataStruct->Ax = (DataStruct->Accel_X_RAW - correction[0]) / correction[3];
-    DataStruct->Ay = (DataStruct->Accel_Y_RAW - correction[1]) / correction[4];
-    DataStruct->Az = (DataStruct->Accel_Z_RAW - correction[2]) / correction[5];
+    DataStruct->Ax = (DataStruct->Accel_X_RAW - correction[0] - DataStruct->Accel_X_Offset) / correction[3];
+    DataStruct->Ay = (DataStruct->Accel_Y_RAW - correction[1] - DataStruct->Accel_Y_Offset) / correction[4];
+    DataStruct->Az = (DataStruct->Accel_Z_RAW - correction[2] - DataStruct->Accel_Z_Offset) / correction[5];
 
     return status;
 }
@@ -267,17 +324,17 @@ HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU605
     DataStruct->Gyro_Y_RAW = (int16_t)(Rec_Data[10] << 8 | Rec_Data[11]);
     DataStruct->Gyro_Z_RAW = (int16_t)(Rec_Data[12] << 8 | Rec_Data[13]);
 
-    DataStruct->Ax = (DataStruct->Accel_X_RAW - correction[0]) / correction[3];
-    DataStruct->Ay = (DataStruct->Accel_Y_RAW - correction[1]) / correction[4];
-    DataStruct->Az = (DataStruct->Accel_Z_RAW - correction[2]) / correction[5];
+    DataStruct->Ax = (DataStruct->Accel_X_RAW - correction[0] - DataStruct->Accel_X_Offset) / correction[3];
+    DataStruct->Ay = (DataStruct->Accel_Y_RAW - correction[1] - DataStruct->Accel_Y_Offset) / correction[4];
+    DataStruct->Az = (DataStruct->Accel_Z_RAW - correction[2] - DataStruct->Accel_Z_Offset) / correction[5];
     DataStruct->Temperature = (float)((int16_t)temp / (float)340.0 + (float)36.53);
     DataStruct->Gx = (DataStruct->Gyro_X_RAW - DataStruct->Gyro_X_Offset) / 131.0;
     DataStruct->Gy = (DataStruct->Gyro_Y_RAW - DataStruct->Gyro_Y_Offset) / 131.0;
     DataStruct->Gz = (DataStruct->Gyro_Z_RAW - DataStruct->Gyro_Z_Offset) / 131.0;
 
     // Kalman angle solve
-    double dt = (double)(HAL_GetTick() - timer) / 1000;
-    timer = HAL_GetTick();
+    double dt = (double)(HAL_GetTick() - DataStruct->timer) / 1000;
+    DataStruct->timer = HAL_GetTick();
     double roll;
     double roll_sqrt = sqrt(
         DataStruct->Ax * DataStruct->Ax + DataStruct->Az * DataStruct->Az);
@@ -292,16 +349,16 @@ HAL_StatusTypeDef MPU6050_Read_All(I2C_HandleTypeDef *I2Cx, uint8_t addr, MPU605
     double pitch = atan2(-DataStruct->Ax, DataStruct->Az) * RAD_TO_DEG;
     if ((pitch < -90 && DataStruct->KalmanAngleY > 90) || (pitch > 90 && DataStruct->KalmanAngleY < -90))
     {
-        KalmanY.angle = pitch;
+        DataStruct->KalmanY.angle = pitch;
         DataStruct->KalmanAngleY = pitch;
     }
     else
     {
-        DataStruct->KalmanAngleY = Kalman_getAngle(&KalmanY, pitch, DataStruct->Gy, dt);
+        DataStruct->KalmanAngleY = Kalman_getAngle(&DataStruct->KalmanY, pitch, DataStruct->Gy, dt);
     }
     if (fabs(DataStruct->KalmanAngleY) > 90)
         DataStruct->Gx = -DataStruct->Gx;
-    DataStruct->KalmanAngleX = Kalman_getAngle(&KalmanX, roll, DataStruct->Gx, dt);
+    DataStruct->KalmanAngleX = Kalman_getAngle(&DataStruct->KalmanX, roll, DataStruct->Gx, dt);
 
     return status;
 }
