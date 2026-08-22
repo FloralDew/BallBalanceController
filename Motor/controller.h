@@ -30,6 +30,8 @@ void Guideway_FeedBallPos(float pos);
 void Guideway_FeedAcc(float acc);
 Controller_State_t Controller_GetState(void);
 void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colorTurn);
+// 由于这个是可写入flash的，所以只用调用一次，后面直接注释掉。并且发现这句与电机回零两者之间必须间隔一秒，否则电机不会回零
+void Motor_Init(void);
 void Motor_Return_Origin(void);
 /** 便于调试：当前滤波后角度 **/
 float Guideway_GetAngle(void);

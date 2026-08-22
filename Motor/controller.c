@@ -39,7 +39,7 @@ static Controller_State_t s_state = CONTROLLER_IDLE;
 static float s_angle_avg = 0.0f;
 void Guideway_FeedAngle(float angle)
 {
-    const uint8_t FEED_ANGLE_AVG_WIN = 50; // 超大窗抑制低频漂移，0.5s
+    const uint8_t FEED_ANGLE_AVG_WIN = 100; // 超大窗抑制低频漂移，1s
     static float s_fa_buf[FEED_ANGLE_AVG_WIN];
     static uint8_t s_fa_buf_idx = 0;
     static uint8_t s_fa_buf_cnt = 0;
@@ -92,9 +92,14 @@ void Show_State_On_OLED(uint8_t col, uint8_t row, uint8_t charSize, uint8_t colo
 
 float Guideway_GetAngle(void) { return s_angle_avg; }
 
+void Motor_Init(void)
+{
+    Emm_V5_Origin_Modify_Params(MOTOR_ADDR, true, 0, 0, 4, 10000, 300, 800, 60, false);
+}
+
 void Motor_Return_Origin(void)
 {
-    Emm_V5_Origin_Trigger_Return(MOTOR_ADDR, 0, false);
+    Emm_V5_Origin_Trigger_Return(MOTOR_ADDR, 0, false); // 疑似存在误差，死区比较大
 }
 
 /* ***************** 控制器通用函数结束 ******************** */
@@ -170,11 +175,11 @@ void ZeroGuideway_Start(void)
     /* PID 参数：输出单位 = 导轨度数，误差单位 = 导轨度数。
     Kp = 1.0 相当于"一拍走完全部误差"，对有延迟的系统必然振荡，
     所以取 0.3~0.5，即每拍只吃掉一部分误差，靠多拍逼近 */
-    const float ZG_KP = 0.3f;
-    const float ZG_KI = 0.0f;
+    const float ZG_KP = 0.2f;
+    const float ZG_KI = 0.015f;
     const float ZG_KD = 0.03f;
-    const float ZG_INT_MAX = 5.0f; /* 积分限幅 */
-    const float ZG_INT_SEP = 3.0f; /* |误差|>3° 时不积分，先靠 P 快速接近 */
+    const float ZG_INT_MAX = 10.0f; /* 积分限幅 */
+    const float ZG_INT_SEP = 0.3f; /* |误差|>0.3° 时不积分，先靠 P 快速接近 */
     const float ZG_D_ALPHA = 0.3f; /* 微分低通，噪声大就再调小 */
     const float ZG_DEADBAND = 0.03f; /* 死区单位为度，略大于静态抖动 */
 
@@ -202,26 +207,26 @@ Controller_State_t ZeroGuideway_Poll(void)
     const float ZG_STABLE_CNT = 5;     /* 连续 N 拍在死区内才认为回零完成. 每拍0.25s */
     const int ZERO_SPD_RPM = 15;
     const int ZERO_ACC = 0;
+    const float ZG_CTRL_DT = 0.25f; /* 控制周期，单位为秒 */
 
-    static uint32_t s_zg_t_last; // 上次动作时刻
-    static uint8_t s_init_flag = 0;
+    // static uint32_t s_zg_t_last; // 上次动作时刻
+    // static uint8_t s_init_flag = 0;
 
-    if (!s_init_flag)
-    {
-        s_zg_t_last = HAL_GetTick();
-        s_init_flag = 1;
-    }
+    // if (!s_init_flag)
+    // {
+    //     s_zg_t_last = HAL_GetTick();
+    //     s_init_flag = 1;
+    // }
 
     if (s_state != CONTROLLER_ZEROING)
         return s_state;
 
-    uint32_t now;
-    float angle, out_deg, dt;
+    // uint32_t now;
+    float angle, out_deg;
 
-    now = HAL_GetTick();
+    // now = HAL_GetTick();
 
-    dt = (float)(now - s_zg_t_last) / 1000.0f;
-    s_zg_t_last = now;
+    // s_zg_t_last = now;
 
     /* ---- 采样（已由 FeedAngle 滤波） ---- */
     angle = s_angle_avg;
@@ -233,7 +238,8 @@ Controller_State_t ZeroGuideway_Poll(void)
         {
             s_state = CONTROLLER_IDLE;
             Emm_V5_Reset_CurPos_To_Zero(MOTOR_ADDR); // 将当前位置角度清零
-            Emm_V5_Origin_Set_O(MOTOR_ADDR, true); // 设置单圈回零零点位置，写入flash
+            // 这个地方需要衔接一个等待，不然下面这条dma发不出去
+            Emm_V5_Origin_Set_O(MOTOR_ADDR, true); // 设置单圈回零零点位置，写入flash。不会将当前位置清零！
             return s_state;
         }
     }
@@ -243,7 +249,7 @@ Controller_State_t ZeroGuideway_Poll(void)
     }
 
     /* ---- PID 运算并执行 ---- */
-    out_deg = PID_Calc(&s_zg_pid, angle, dt); // 单位为deg
+    out_deg = PID_Calc(&s_zg_pid, angle, ZG_CTRL_DT); // 单位为deg
     // s_last_out = out_deg;
 
     uint32_t pulse;

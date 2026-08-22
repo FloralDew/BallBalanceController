@@ -208,6 +208,16 @@ static void task_get_button(void)
       }
       break;
     case BTN_LONGPRESS:
+      Controller_SetIDLE();
+      Sched_SetEnable(TASK_ZERO_GUIDEWAY, 0);
+      Sched_SetEnable(TASK_GET_LUT, 0);
+      Sched_SetEnable(TASK_BALL_ACC_COMP, 0);
+      Sched_SetEnable(TASK_BALL_STAB, 0);
+      Motor_Return_Origin();
+      OLED_Clear(OLED_STATE_POS_ROW, OLED_STATE_POS_ROW);
+      Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
+      break;
+    case BTN_VERYLONGPRESS:
       if (Controller_GetState() == CONTROLLER_IDLE)
       {
         ZeroGuideway_Start();
@@ -215,7 +225,6 @@ static void task_get_button(void)
         Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
       }
       break;
-      
     default:
       break;
   }
@@ -298,7 +307,7 @@ static void task_zero_guideway(void)
   if (Controller_GetState() == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_ZERO_GUIDEWAY, 0);
-    OLED_Clear(5, 5);
+    OLED_Clear(OLED_STATE_POS_ROW, OLED_STATE_POS_ROW);
     Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
   }
 }
@@ -313,7 +322,7 @@ static void task_get_lut(void) {
   {
     Controller_SetIDLE();
     Sched_SetEnable(TASK_GET_LUT, 0);
-    OLED_Clear(5, 5);
+    OLED_Clear(OLED_STATE_POS_ROW, OLED_STATE_POS_ROW);
     Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
   }
   pulse += 5; // 逐渐往下运动
@@ -324,7 +333,7 @@ static void task_ball_stab(void)
   if (BallStablization_Poll() == CONTROLLER_IDLE)
   {
     Sched_SetEnable(TASK_BALL_STAB, 0);
-    OLED_Clear(5, 5);
+    OLED_Clear(OLED_STATE_POS_ROW, OLED_STATE_POS_ROW);
     Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1);
   }
 }
@@ -339,13 +348,13 @@ static Task_t task_list[TASK_COUNT] = {
   [TASK_LASER] =          {task_laser,          0,      1, 0},
   [TASK_ROTARY_ENCODER] = {task_rotary_encoder, 0,      1, 0},
   [TASK_READ_MPU] =       {task_read_mpu,       10,     1, 0}, // mpu6050 init中制定了采集周期为10ms，不能再小了
+  [TASK_GET_BUTTON] =     {task_get_button,     10,     1, 0}, // 需要放在最前面，否则无法正确回零
   [TASK_ZERO_GUIDEWAY] =  {task_zero_guideway,  250,    0, 0}, // 控制周期ms，需 > 传感器延迟 + 运动时间
   [TASK_GET_LUT] =        {task_get_lut,        3000,   0, 0},
   [TASK_BALL_STAB] =      {task_ball_stab,      20,     0, 0},
   [TASK_BALL_ACC_COMP] =  {task_ball_acc_comp,  20,     0, 0},
   [TASK_DISPLAY_UART] =   {task_display_uart,   200,    1, 0},
   [TASK_ADC] =            {task_adc,            1000,   1, 0},
-  [TASK_GET_BUTTON] =     {task_get_button,     10,     1, 0},
 };
 /* USER CODE END 0 */
 
@@ -388,6 +397,7 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   // Initialization
+  Motor_Return_Origin(); // 电机回零，实测会飘0.2度以内
   // OLED初始化
   OLED_Init(0x8f);
   OLED_Clear(0, 7);
@@ -415,8 +425,7 @@ int main(void)
   rotary_encoder.modified_flag = 1; // 触发一次旋转编码器显示
   Sched_Init(task_list, sizeof(task_list) / sizeof(task_list[0]));
 
-  Motor_Return_Origin(); // 电机回零，实测会飘0.2度以内
-  HAL_Delay(1000); // 等待电机回零完成
+  HAL_Delay(500); // 等待电机回零完成
 
   Show_State_On_OLED(OLED_STATE_POS_COL, OLED_STATE_POS_ROW, 12, 1); // idle
   while (1)
