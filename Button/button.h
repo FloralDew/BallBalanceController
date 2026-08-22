@@ -4,6 +4,7 @@
 #include "main.h"
 
 #define BTN_LONGPRESSMS 1000
+#define BTN_VERYLONGPRESSMS 3000
 #define BTN_PRESSMS 10
 #define BTN_DOUBLEPRESSMS 300
 
@@ -13,6 +14,7 @@ typedef enum
     BTN_RELEASE = 0,
     BTN_PRESS,
     BTN_LONGPRESS,
+    BTN_VERYLONGPRESS,
     BTN_DOUBLEPRESS
 } BTN_StateTypedef;
 typedef struct

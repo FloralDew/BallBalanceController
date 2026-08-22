@@ -124,10 +124,20 @@ void Button_Get(BTN_HandleTypedef *hbutton)
             /* 第二次按下只“武装”，不定性；等松开或长按超时再决定 */
             hbutton->click_cnt = (hbutton->click_cnt == 1) ? 2 : 0;
         }
-        else if (!hbutton->long_reported && (now - hbutton->press_tick) >= BTN_LONGPRESSMS)
+        else if (hbutton->long_reported < 2)
         {
-            hbutton->long_reported = 1;
-            hbutton->btn_state = BTN_LONGPRESS;
+            uint32_t held = now - hbutton->press_tick;
+
+            if (hbutton->long_reported == 0 && held >= BTN_LONGPRESSMS)
+            {
+                hbutton->long_reported = 1;
+                hbutton->btn_state = BTN_LONGPRESS;
+            }
+            else if (hbutton->long_reported == 1 && held >= BTN_VERYLONGPRESSMS)
+            {
+                hbutton->long_reported = 2;
+                hbutton->btn_state = BTN_VERYLONGPRESS;
+            }
         }
     }
     else if (hbutton->down)
